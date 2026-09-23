@@ -1,0 +1,17 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #0a0d0c;
+  color: #e8f2ec;
+}
+
+body { margin: 0; }
+main { max-width: 760px; margin: 12vh auto; padding: 2rem; }
+.eyebrow { color: #66e0a3; text-transform: uppercase; letter-spacing: .12em; }
+h1 { font: 600 clamp(2rem, 6vw, 4.5rem)/.95 system-ui, sans-serif; max-width: 680px; }
+p { color: #aebcb4; line-height: 1.65; }
+form { display: grid; gap: .75rem; margin: 2rem 0; }
+input, button { border: 1px solid #334139; border-radius: .45rem; padding: .9rem; font: inherit; }
+input { background: #101713; color: inherit; }
+button { width: fit-content; background: #66e0a3; color: #06100a; cursor: pointer; }
+code { display: block; overflow-wrap: anywhere; color: #7d9487; }
