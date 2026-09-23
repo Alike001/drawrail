@@ -1,11 +1,12 @@
 # Stocklana
 
 Stocklana is a policy-preserving tokenized-stock portfolio drawdown product. The repository is
-currently stopped at **Milestone 1: read-only mainnet correctness**.
+currently stopped at **Milestone 2: deterministic read-only portfolio decisions**.
 
-Milestone 1 validates the closed asset registry, aggregates wallet token accounts, parses xStocks'
-Token-2022 Scaled UI Amount state, checks official conversion parity and activation windows, and
-obtains quote-only Jupiter Swap V2 orders. It contains no wallet signing or transaction submission.
+The app validates the closed asset registry, aggregates wallet token accounts, parses xStocks'
+Token-2022 Scaled UI Amount state, and uses live quote-only Jupiter Swap V2 orders to select one
+policy-compliant reduction. The public product explanation is at `/`; the read-only product is at
+`/app`. It contains no wallet signing, transaction construction, `/execute`, or transaction submission.
 
 ## Run locally
 
@@ -16,6 +17,7 @@ npm test
 npm run typecheck
 npm run lint
 npm run build
+npm run dev
 npm run validate:mainnet -- <wallet-public-key>
 ```
 

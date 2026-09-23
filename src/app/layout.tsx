@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Stocklana Milestone 1",
-  description: "Read-only mainnet correctness validation",
+  title: "Stocklana — Policy-preserving portfolio drawdown",
+  description: "Turn tokenized-stock exposure into USDC without breaking the portfolio rules you already chose.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

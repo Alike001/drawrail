@@ -2,6 +2,7 @@ export const TOKEN_PROGRAM_ADDRESS = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5D
 export const TOKEN_2022_PROGRAM_ADDRESS = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 
 export type SupportedSymbol = "AAPLx" | "NVDAx" | "TSLAx" | "USDC";
+export type XStockSymbol = Exclude<SupportedSymbol, "USDC">;
 
 export type AssetDefinition = Readonly<{
   symbol: SupportedSymbol;
@@ -43,6 +44,7 @@ export const ASSET_REGISTRY = {
 } as const satisfies Record<SupportedSymbol, AssetDefinition>;
 
 export const XSTOCKS = [ASSET_REGISTRY.AAPLx, ASSET_REGISTRY.NVDAx, ASSET_REGISTRY.TSLAx] as const;
+export const XSTOCK_SYMBOLS = ["AAPLx", "NVDAx", "TSLAx"] as const satisfies readonly XStockSymbol[];
 export const SUPPORTED_ASSETS = Object.values(ASSET_REGISTRY);
 
 export function assetByMint(mint: string): AssetDefinition {
