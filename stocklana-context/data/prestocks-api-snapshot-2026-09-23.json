@@ -1,0 +1,10 @@
+[
+  {"name":"Anduril PreStocks","symbol":"ANDURIL","contract_address":"PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB","markPrice":151.77219816,"markValuation":134272720635,"tokenPrice":149.44320238946815,"impliedValuation":132212260272,"supply":11805.820587074},
+  {"name":"Anthropic PreStocks","symbol":"ANTHROPIC","contract_address":"Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw","markPrice":1047.58354435,"markValuation":1716300436831,"tokenPrice":1022.931857905155,"impliedValuation":1675912536083,"supply":7381.822235346},
+  {"name":"Figure AI PreStocks","symbol":"FIGUREAI","contract_address":"PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd","markPrice":181.5614852,"markValuation":39585303037,"tokenPrice":174.40094731514387,"impliedValuation":38024112558,"supply":3012.857155916},
+  {"name":"Kalshi PreStocks","symbol":"KALSHI","contract_address":"PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua","markPrice":885.05231709,"markValuation":32191169818,"tokenPrice":860.7833889388518,"impliedValuation":31308459076,"supply":904.86791003},
+  {"name":"Neuralink PreStocks","symbol":"NEURALINK","contract_address":"PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S","markPrice":338.0600248,"markValuation":64398761160,"tokenPrice":436.2269517847304,"impliedValuation":83099074776,"supply":2595.300363814},
+  {"name":"OpenAI PreStocks","symbol":"OPENAI","contract_address":"PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF","markPrice":1022.4496865660966,"markValuation":1266743894711,"tokenPrice":1302.4867498613253,"impliedValuation":1613690296948,"supply":2826.3851643677804},
+  {"name":"Polymarket PreStocks","symbol":"POLYMARKET","contract_address":"Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP","markPrice":144.29721064,"markValuation":14231422565,"tokenPrice":145.03937938082998,"impliedValuation":14304619524,"supply":4816.970106875},
+  {"name":"SpaceX PreStocks","symbol":"SPACEX","contract_address":"PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh","markPrice":152.36643724836537,"markValuation":1997693288367,"tokenPrice":112.496991575484,"impliedValuation":1474960556212,"supply":43712.532115040005}
+]
