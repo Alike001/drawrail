@@ -2,7 +2,7 @@
 
 Date: 23 September 2026
 
-Status: implementation-ready product specification; application code not started
+Status: implementation-ready product specification; Milestone 1 complete, Milestone 2 not started
 
 Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
@@ -438,61 +438,98 @@ If RPC confirmation succeeds but reconciliation is ambiguous, show **settled —
 
 ## 16. Frontend screens
 
-### 1. Connect and portfolio
+The complete UX contract is in [16-ux-product-plan.md](./16-ux-product-plan.md). This section fixes the architecture-level surface boundaries.
 
-- mainnet badge and connected wallet;
-- USDC plus AAPLx/NVDAx/TSLAx balances;
-- raw and displayed xStock values in inspectable details;
-- overview USD marks and freshness;
-- Pyth service availability, separate from whether reference protection is requested; and
-- a clear “Request USDC drawdown” action.
+### 1. Public landing (`/`)
 
-States: disconnected, loading, empty portfolio, partial data, RPC error, ready.
+The landing page works without a wallet or live API response and makes the product understandable in under 30 seconds. It contains only:
 
-### 2. Drawdown request
+- hero and `Launch App` CTA;
+- one illustrative 80 USDC need showing existing USDC counted first;
+- three-step explanation;
+- why this is different from a swap;
+- one connected Solana/xStocks/Jupiter/Pyth explanation;
+- self-custody and safety statement; and
+- closing `Launch App` CTA.
 
-- target USDC amount;
-- existing USDC and calculated amount still needed;
+No market charts, terminal, feature-card grid, wallet-gated explanation, AI imagery, or live balance facsimile belongs on `/`.
+
+### 2. Product shell and portfolio (`/app`)
+
+- persistent environment badge: `Devnet — synthetic assets`, `Mainnet — read only`, or `Mainnet — real transaction`;
+- connected wallet and change/disconnect control;
+- USDC first, then AAPLx/NVDAx/TSLAx balances;
+- displayed/economic balance as the primary quantity;
+- raw balance, token-account count, live mint metadata, multiplier state, and RPC slot under `Inspect balances`;
+- Pyth service availability displayed separately from the user's reference-protection policy; and
+- one clear `Request USDC` action.
+
+States: disconnected, connecting, loading, empty portfolio, partial/malformed asset, stale data, RPC rate limit/error, wallet changed, ready. Loading must not flash zero balances, and malformed live mint state must never be replaced with registry metadata.
+
+### 3. Request USDC and policy setup (`/app/request`)
+
+- total target USDC;
+- existing USDC and calculated amount still needed in a persistent equation;
 - per-stock minimum retained USD exposure;
 - maximum slippage, default 50 bps and maximum 100 bps;
-- explicit reference-protection policy switch; unavailable service prevents turning it on, while OFF is visibly recorded as unprotected; and
+- explicit reference-protection policy switch; and
 - concise definition of the conservative retained-exposure rule.
 
-States: invalid input, target already met, evaluating, evaluation blocked, actionable.
+Pyth service availability and the user's policy are independent UI states. If protection was ON and service/data becomes invalid, evaluation blocks with protection still ON. The user must start a new explicitly unprotected evaluation to proceed without it.
 
-### 3. Decision review
+States: invalid input, target already met, no supported positions, editing, evaluating by named phases, service/rate failure, reference-policy block, actionable.
 
+### 4. Decision (`/app/decision`)
+
+This is the product's primary surface. Without opening technical details, it shows:
+
+- target, existing USDC, and remaining need;
 - selected position and deterministic reason;
-- every alternative with blocked or lower-ranked reason;
-- displayed amount being reduced and exact raw input;
-- active/pending multiplier and activation-window result;
+- every held alternative as selected, rejected, eligible-not-selected, or unavailable, with a plain reason;
+- displayed amount being reduced;
 - expected and minimum USDC output;
-- pre/post displayed position and conservative retained value;
-- slippage, price impact, route, quote age/countdown, and Jupiter `feeBps`, `feeMint`, and `platformFee` exactly as returned;
-- reference-protection policy plus either its Pyth checks or an honest `not applied` state; and
-- destination wallet plus explicit Sign and swap button.
+- pre/post portfolio exposure and retained floors; and
+- concise policy checklist.
 
-Any refresh-changing field invalidates this screen and returns the user to a fresh review.
+`Inspect` contains exact raw input, decimals, account aggregation, active/pending multiplier and activation time, mint/program checks, Jupiter route/mode/request/fee fields, Pyth evidence when applied, quote timestamps, and decision receipt/hash.
 
-### 4. Signing and execution
+States: actionable, no eligible position, activation hard block, quote unavailable/expiring/expired, required reference protection blocked, and invalidated by changed state. Any refresh-changing field invalidates the decision.
+
+### 5. Transaction review (`/app/review`)
+
+- `You send` displayed xStock reduction;
+- expected and reviewed minimum USDC received;
+- destination wallet;
+- post-trade retained exposure;
+- Jupiter `feeBps`, `feeMint`, and `platformFee` exactly as returned, including `not returned`;
+- reference-protection result; and
+- quote expiry plus self-custody/message-binding statement.
+
+Exact raw input, v0 message hash, program/accounts, and request ID remain available under Inspect. Signing is enabled only after the final order matches the reviewed decision and simulation/policy rechecks pass. A build mismatch, failed simulation, expired quote, wallet change, or disconnection hard-blocks signing and requires fresh review.
+
+### 6. Wallet signing and execution state
 
 - waiting for wallet;
+- user rejected/closed wallet, explicitly stating nothing was sent;
 - signature received;
-- policy recheck;
-- submitting;
-- confirming; and
-- a persistent signature as soon as one exists.
+- canonical message verified;
+- sending signed transaction and original `requestId` to Jupiter `/execute`;
+- submitted with persistent signature; and
+- confirming against Jupiter and RPC.
 
-No celebratory success state appears before settlement evidence is reconciled.
+The browser never broadcasts. No celebratory success or portfolio mutation appears at `submitted`.
 
-### 5. Receipt
+### 7. Settlement/receipt (`/app/receipt/[id]`)
 
-- confirmed/failed/unknown/needs-investigation status;
-- signature and explorer link;
-- reviewed versus actual raw/displayed input and USDC output;
-- post-trade portfolio snapshot;
-- policy evidence; and
-- “new drawdown” action that starts from fresh state rather than cloning a transaction.
+- confirming/confirmed/failed/unknown/needs-investigation status;
+- request reconciliation: target, existing USDC, gap, actual credit, final balance;
+- reviewed versus actual raw/displayed input;
+- Jupiter execution totals and fee fields reconciled against RPC wallet deltas;
+- post-trade portfolio and policy evidence;
+- signature, slot, timestamps, request ID, and explorer link; and
+- `Start a new drawdown`, always from fresh state.
+
+Unknown offers status inspection for the same signature, never blind resubmission. Needs-investigation freezes retry and preserves inspectable evidence.
 
 ## 17. Exact two-minute demo journey
 
@@ -500,14 +537,14 @@ The wallet is pre-funded on mainnet with approximately 420 USD of AAPLx, 650 USD
 
 | Time | Demo action |
 |---:|---|
-| 0:00–0:12 | Connect the wallet and show the live USDC/xStock portfolio, including raw versus displayed inspectability. |
-| 0:12–0:28 | Enter an 80 USDC target, 600 USD NVDA retained floor, 0.5% maximum slippage, and the multiplier-window rule. If Pyth is credentialed, show a 1% divergence limit. |
-| 0:28–0:48 | Evaluate. Highlight that existing 20 USDC is counted first and only 60 more is needed. |
-| 0:48–1:05 | Show NVDAx rejected because its conservative post-sale value would violate the floor. Show AAPLx selected after multiplier and optional Pyth checks. |
-| 1:05–1:20 | Expand the review: displayed AAPLx reduction, exact raw input, active/pending multiplier, expected/minimum USDC, post-trade exposure, route, and blocked alternatives. |
-| 1:20–1:35 | Click Sign and swap; approve the real transaction in the wallet. |
-| 1:35–1:52 | Show submission and mainnet confirmation. Use the returned signature, not a prerecorded success state. |
-| 1:52–2:00 | Show actual xStock debit, USDC credit, post-trade portfolio, passed policies, and explorer evidence. |
+| 0:00–0:12 | On `/`, state the one-sentence product and use the 80 target − 20 existing = 60 needed example; launch the app. |
+| 0:12–0:25 | Connect the pre-funded wallet and show the real portfolio under the persistent mainnet environment badge. Briefly expose raw/displayed inspectability. |
+| 0:25–0:40 | Enter an 80 USDC target, 600 USD NVDA retained floor, and 0.5% maximum slippage. State the reference-protection choice separately from Pyth service availability. |
+| 0:40–1:00 | Evaluate. The decision surface shows 20 existing, 60 needed, one selected position, NVDAx's retained-floor rejection, other alternatives, and the before/after portfolio. |
+| 1:00–1:14 | Open Inspect briefly: exact raw input, active/pending multiplier, activation-window result, Jupiter route/fees/request ID, and Pyth evidence or `Not applied`. |
+| 1:14–1:27 | Continue to exact transaction review: send amount, expected/minimum receive, wallet destination, retained exposure, fee fields, and expiry. Click `Sign in wallet`. |
+| 1:27–1:40 | Wallet signs; show canonical-message verification and server submission through Jupiter rather than browser broadcast. |
+| 1:40–2:00 | Show RPC-observed xStock debit and USDC credit, Jupiter-total reconciliation, post-trade portfolio, policies, signature, and explorer evidence. |
 
 If Pyth trial access is unavailable, the demo says so plainly and shows the Pyth service as unavailable. Reference protection must be OFF and visibly `not applied`; it is never silently downgraded after being requested. The demo does not substitute mock data. If current live balances or quotes make the illustrative AAPLx choice invalid, the demo follows the engine's real decision.
 
@@ -570,11 +607,26 @@ Property tests must establish that converting a displayed sale to raw never sell
 ### End-to-end tests
 
 - automated UI tests may use a test wallet adapter and deterministic API fixtures for non-financial states;
+- localnet/devnet tests use explicitly synthetic Token-2022 xStock mirrors and fake/test USDC for wallet signing, multiplier transitions, hard blocks, failure states, and receipt UX;
+- no devnet mirror may be presented as a real issuer asset;
 - runtime feature gating must be tested with Pyth absent and unhealthy;
 - a manual, low-value mainnet transaction is required before the product is called demo-ready; and
 - the final rehearsal uses the actual demo wallet and live services, with an explicit maximum loss budget.
 
-## 19. Mainnet validation plan
+## 19. Environment and mainnet validation plan
+
+### Environment strategy
+
+| Environment | Purpose | Assets/data | Financial action rule |
+|---|---|---|---|
+| Localnet | Deterministic unit/integration/E2E and fault injection | Synthetic Token-2022 mirrors, fake USDC, controlled multiplier clocks, explicit API fixtures | Non-value only |
+| Devnet | Shared wallet-signing, relay, failure, and receipt validation | Synthetic Token-2022 xStock mirrors and fake/test USDC, always labeled synthetic | Non-value only |
+| Mainnet read-only | Continuous real-input correctness | Real mints, wallet balances, multipliers, Jupiter quotes, optional real Pyth feeds | No signature, `/execute`, or broadcast |
+| Mainnet funded | Final smallest-practical validation and judge demo | Dedicated low-value wallet and live services | Explicit user review/signature; one bounded action at a time |
+
+Ordinary development uses localnet and Devnet, not Solana Testnet. Synthetic devnet mirrors may reproduce mainnet mint-extension configuration but are never described as issuer xStocks. Environment selection is deployment/configuration-bound and shown persistently in the product shell; it is not a casual control that can change underneath a reviewed decision.
+
+### Mainnet validation gates
 
 Run these gates in order. Record timestamps, request IDs, RPC slots, signatures where applicable, and sanitized responses.
 
@@ -607,7 +659,8 @@ No live transaction should be attempted until gates 1–7 pass. Pyth-dependent c
 | `JUPITER_PRICE_MAX_SLOT_LAG` | Yes | Overview-price freshness bound |
 | `MULTIPLIER_SAFETY_WINDOW_SECONDS` | Yes | Fixed/default `900`; do not expose as a casual user override |
 | `DECISION_RECEIPT_SECRET` | Yes | High-entropy server-only HMAC secret |
-| `NEXT_PUBLIC_SOLANA_CLUSTER` | Yes | Fixed to `mainnet-beta` for the demo |
+| `NEXT_PUBLIC_SOLANA_CLUSTER` | Yes | Deployment-bound `devnet` or `mainnet-beta`; never Testnet for ordinary development and never changed during a reviewed flow |
+| `NEXT_PUBLIC_APP_MODE` | Yes | `synthetic-devnet`, `mainnet-read-only`, or `mainnet-funded`; drives the persistent environment label and action gate |
 | `NEXT_PUBLIC_EXPLORER_BASE_URL` | Optional | Transaction evidence link |
 
 The user must manually obtain:
