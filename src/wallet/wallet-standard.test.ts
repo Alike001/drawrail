@@ -6,6 +6,7 @@ import {
   connectDrawRailWallet,
   disconnectDrawRailWallet,
   isDrawRailWallet,
+  signReviewedTransaction,
   walletIdentityChanged,
 } from "./wallet-standard";
 
@@ -52,6 +53,19 @@ describe("Wallet Standard connection boundary", () => {
     const connection = await connectDrawRailWallet(wallet);
     await disconnectDrawRailWallet(connection);
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("uses signTransaction and returns the wallet bytes without broadcasting", async () => {
+    const { wallet, signTransaction } = fixture();
+    signTransaction.mockResolvedValue([{ signedTransaction: new Uint8Array([4, 5, 6]) }]);
+    const connection = await connectDrawRailWallet(wallet);
+    await expect(signReviewedTransaction(connection, "AQID")).resolves.toBe("BAUG");
+    expect(signTransaction).toHaveBeenCalledWith({
+      account,
+      chain: "solana:mainnet",
+      transaction: new Uint8Array([1, 2, 3]),
+    });
+    expect(wallet.features).not.toHaveProperty("solana:signAndSendTransaction");
   });
 
   it("rejects wallets without v0 transaction support", () => {

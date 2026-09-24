@@ -51,6 +51,20 @@ export async function disconnectDrawRailWallet(connection: ConnectedWallet): Pro
   if (disconnect) await disconnect.disconnect();
 }
 
+export async function signReviewedTransaction(
+  connection: ConnectedWallet,
+  transactionBase64: string,
+): Promise<string> {
+  const transaction = base64ToBytes(transactionBase64);
+  const [result] = await connection.wallet.features[SolanaSignTransaction].signTransaction({
+    account: connection.account,
+    chain: SOLANA_MAINNET_CHAIN,
+    transaction,
+  });
+  if (!result?.signedTransaction?.length) throw new Error("The wallet did not return a signed transaction.");
+  return bytesToBase64(result.signedTransaction);
+}
+
 export function walletIdentityChanged(previous: string | null, next: string | null) {
   return previous !== next;
 }
@@ -105,4 +119,15 @@ export function useWalletStandard() {
   }, [connection]);
 
   return { wallets: compatibleWallets, connection, connecting, error, connect, disconnect };
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function bytesToBase64(value: Uint8Array): string {
+  let binary = "";
+  for (const byte of value) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }

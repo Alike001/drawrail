@@ -27,6 +27,11 @@ const payload: DecisionReceiptPayload = {
   platformFee: { feeBps: "10" },
   requestId: "request-a",
   messageHash: "a".repeat(64),
+  nonWalletSignaturesHash: "b".repeat(64),
+  router: "metis",
+  lastValidBlockHeight: "123456",
+  jupiterExpireAt: null,
+  multiplier: { active: "1", old: "1", next: "1.01", activationTimestamp: "2000000000" },
   policy: {
     retainedFloors: { AAPLx: "400000000", NVDAx: "0", TSLAx: "0" },
     maxSlippageBps: "50",

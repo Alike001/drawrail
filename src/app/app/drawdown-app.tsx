@@ -4,10 +4,10 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Wallet } from "@wallet-standard/base";
 import { formatRawAmount, parseUsdc } from "@/domain/money";
-import { canBuildWalletReview, type ReviewState } from "@/domain/review-state";
-import { useWalletStandard } from "@/wallet/wallet-standard";
+import { canBuildWalletReview, canRefreshTransactionOnly, type ReviewState } from "@/domain/review-state";
+import { signReviewedTransaction, useWalletStandard } from "@/wallet/wallet-standard";
 import { EnvironmentBadge } from "../components/environment-badge";
-import type { CandidateDto, DecisionDto, PortfolioDto, TransactionReviewDto } from "./types";
+import type { CandidateDto, DecisionDto, ExecutionResultDto, PortfolioDto, TransactionReviewDto } from "./types";
 
 type Stage = "wallet" | "portfolio" | "request" | "decision" | "review";
 type Floors = Record<"AAPLx" | "NVDAx" | "TSLAx", string>;
@@ -22,13 +22,15 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
   const [decision, setDecision] = useState<DecisionDto | null>(null);
   const [review, setReview] = useState<TransactionReviewDto | null>(null);
   const [reviewState, setReviewState] = useState<ReviewState>("decision_ready");
+  const [executionResult, setExecutionResult] = useState<ExecutionResultDto | null>(null);
+  const [signOnlyEvidence, setSignOnlyEvidence] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>("wallet");
   const [target, setTarget] = useState("80");
   const [floors, setFloors] = useState<Floors>(EMPTY_FLOORS);
   const [slippage, setSlippage] = useState("0.5");
   const [referenceProtection, setReferenceProtection] = useState(false);
   const [divergenceLimit, setDivergenceLimit] = useState("1");
-  const [busy, setBusy] = useState<"portfolio" | "decision" | "review" | null>(null);
+  const [busy, setBusy] = useState<"portfolio" | "decision" | "review" | "signing" | "executing" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const previousConnectedWallet = useRef<string | null>(null);
 
@@ -49,6 +51,8 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     setError(null);
     setDecision(null);
     setReview(null);
+    setExecutionResult(null);
+    setSignOnlyEvidence(null);
     try {
       const response = await fetch(`/api/portfolio?wallet=${encodeURIComponent(address.trim())}`, { cache: "no-store" });
       const body = await response.json() as PortfolioDto | { error: string };
@@ -72,6 +76,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     setPortfolio(null);
     setDecision(null);
     setReview(null);
+    setExecutionResult(null);
     setReviewState(hadWallet ? "wallet_changed" : "decision_ready");
     setWalletMode(next ? "connected" : null);
     setStage("wallet");
@@ -90,6 +95,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     setError(null);
     setDecision(null);
     setReview(null);
+    setExecutionResult(null);
     setReviewState("decision_ready");
     try {
       const response = await fetch("/api/drawdown/evaluate", {
@@ -118,8 +124,65 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     }
   }
 
-  async function openReview() {
-    if (!decision?.expiresAt || Date.parse(decision.expiresAt) <= Date.now()) {
+  async function signReview(mode: "sign-only" | "execute") {
+    if (!review || !walletStandard.connection || reviewState !== "review_ready") return;
+    if (Date.parse(review.expiresAt) <= Date.now()) {
+      setReviewState("quote_expired");
+      return;
+    }
+    setError(null);
+    setBusy(mode === "sign-only" ? "signing" : "executing");
+    try {
+      const preSign = await fetch("/api/drawdown/pre-sign", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ receipt: review.receipt, requestId: review.order.requestId }),
+      });
+      if (!preSign.ok) {
+        const blocked = await preSign.json() as { error?: string };
+        setReviewState("refresh_required");
+        throw new Error(blocked.error ?? "The order is no longer safe to sign.");
+      }
+      const signedTransaction = await signReviewedTransaction(walletStandard.connection, review.order.transaction);
+      const endpoint = mode === "sign-only" ? "/api/drawdown/sign-only" : "/api/drawdown/execute";
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ signedTransaction, receipt: review.receipt, requestId: review.order.requestId }),
+      });
+      const body = await response.json() as ExecutionResultDto | { state: "sign_only_verified" | "transaction_invalid" | "unavailable"; error?: string; messageHashBeforeWallet?: string; messageHashAfterWallet?: string; broadcast?: boolean };
+      if (mode === "sign-only") {
+        if (!response.ok || body.state !== "sign_only_verified") throw new Error(body.error ?? "Sign-only validation failed.");
+        setSignOnlyEvidence(`Signature verified. Message ${body.messageHashAfterWallet?.slice(0, 12)}… was unchanged and was not broadcast.`);
+        setReviewState("refresh_required");
+        return;
+      }
+      const execution = body as ExecutionResultDto;
+      setExecutionResult(execution);
+      if (!response.ok && execution.state !== "unknown") setError(execution.error ?? "The signed drawdown was not submitted.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Wallet signing was cancelled or failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function checkExecutionStatus() {
+    if (!review) return;
+    setBusy("executing");
+    setError(null);
+    try {
+      const response = await fetch("/api/drawdown/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ receipt: review.receipt }) });
+      const body = await response.json() as ExecutionResultDto;
+      setExecutionResult(body);
+      if (!response.ok) setError(body.error ?? "The existing submission status is still unknown.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function openReview(transactionOnlyRefresh = false) {
+    if (!decision?.expiresAt || (!transactionOnlyRefresh && Date.parse(decision.expiresAt) <= Date.now())) {
       setError("This quote has expired. Refresh the decision before reviewing it.");
       setReviewState("quote_expired");
       return;
@@ -165,6 +228,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
         setReviewState("wallet_changed");
         throw new Error("The connected wallet changed while the transaction was being reviewed.");
       }
+      setDecision(body.decision);
       setReview(body);
       setReviewState("review_ready");
     } catch (reason) {
@@ -172,6 +236,19 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     } finally {
       setBusy(null);
     }
+  }
+
+  function refreshExpiredReview() {
+    if (!decision) return;
+    const policySnapshotStillRecent = canRefreshTransactionOnly(decision.createdAt);
+    if (policySnapshotStillRecent) {
+      void openReview(true);
+      return;
+    }
+    setReview(null);
+    setExecutionResult(null);
+    setStage("decision");
+    setReviewState("refresh_required");
   }
 
   const funded = portfolio?.positions.filter((position) => position.state === "verified" && BigInt(position.rawBalance ?? "0") > 0n) ?? [];
@@ -244,7 +321,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
             decision={decision}
             onBack={() => setStage("request")}
             onRefresh={(event) => void evaluate(event)}
-            onReview={() => void openReview()}
+            onReview={() => void openReview(false)}
             canReview={canBuildWalletReview(walletMode, walletStandard.connection?.address ?? null, decision.wallet)}
             busy={busy === "decision"}
           />
@@ -252,7 +329,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
 
         {portfolio && decision?.selected && stage === "review" && (
           review
-            ? <ReviewScreen review={review} walletName={walletStandard.connection?.name ?? "Connected wallet"} reviewState={reviewState} onExpired={() => setReviewState("quote_expired")} onBack={() => setStage("decision")} onRefresh={() => { setReview(null); setStage("decision"); setReviewState("refresh_required"); }} />
+            ? <ReviewScreen review={review} walletName={walletStandard.connection?.name ?? "Connected wallet"} reviewState={reviewState} executionResult={executionResult} signOnlyEvidence={signOnlyEvidence} busy={busy} decisionCreatedAt={decision.createdAt} onSignOnly={() => void signReview("sign-only")} onExecute={() => void signReview("execute")} onCheckStatus={() => void checkExecutionStatus()} onExpired={() => setReviewState("quote_expired")} onBack={() => setStage("decision")} onRefreshTransaction={refreshExpiredReview} onRefreshDecision={() => { setReview(null); setExecutionResult(null); setStage("decision"); setReviewState("refresh_required"); }} />
             : <ReviewProgress state={reviewState} busy={busy === "review"} onBack={() => setStage("decision")} />
         )}
       </div>
@@ -528,13 +605,21 @@ function ReviewProgress({ state, busy, onBack }: { state: ReviewState; busy: boo
   return <section className="empty-decision panel review-progress"><span className={`status-icon ${busy ? "neutral" : "blocked"}`}>{busy ? "…" : "×"}</span><p className="eyebrow">Exact transaction review</p><h1>{labels[state]}</h1><p>{busy ? "DrawRail is obtaining a fresh final order, resolving its v0 message, and binding it to the reviewed policy." : "No transaction was accepted. Return to the decision and refresh live state."}</p><button className="button button-secondary" onClick={onBack}>Back to decision</button></section>;
 }
 
-function ReviewScreen({ review, walletName, reviewState, onExpired, onBack, onRefresh }: {
+function ReviewScreen({ review, walletName, reviewState, executionResult, signOnlyEvidence, busy, decisionCreatedAt, onSignOnly, onExecute, onCheckStatus, onExpired, onBack, onRefreshTransaction, onRefreshDecision }: {
   review: TransactionReviewDto;
   walletName: string;
   reviewState: ReviewState;
+  executionResult: ExecutionResultDto | null;
+  signOnlyEvidence: string | null;
+  busy: "portfolio" | "decision" | "review" | "signing" | "executing" | null;
+  decisionCreatedAt: string;
+  onSignOnly: () => void;
+  onExecute: () => void;
+  onCheckStatus: () => void;
   onExpired: () => void;
   onBack: () => void;
-  onRefresh: () => void;
+  onRefreshTransaction: () => void;
+  onRefreshDecision: () => void;
 }) {
   const selected = review.decision.selected!;
   const [remainingSeconds, setRemainingSeconds] = useState(() => Math.max(0, Math.ceil((Date.parse(review.expiresAt) - Date.now()) / 1000)));
@@ -546,10 +631,13 @@ function ReviewScreen({ review, walletName, reviewState, onExpired, onBack, onRe
   }, [review.expiresAt]);
   useEffect(() => { if (remainingSeconds === 0 && reviewState === "review_ready") onExpired(); }, [remainingSeconds, reviewState, onExpired]);
   const expired = reviewState === "quote_expired" || remainingSeconds === 0;
+  const usable = reviewState === "review_ready" && !expired;
   const unchanged = review.decision.candidates.filter((candidate) => candidate.symbol !== selected.symbol);
+  const policySnapshotStillRecent = canRefreshTransactionOnly(decisionCreatedAt);
+  if (executionResult) return <SettlementScreen review={review} result={executionResult} busy={busy === "executing"} onCheckStatus={onCheckStatus} onRefresh={onRefreshDecision} />;
   return (
     <section className="screen-stack review-screen" aria-labelledby="review-title">
-      <div className="screen-heading"><div><p className="eyebrow">Verified transaction review</p><h1 id="review-title">The exact wallet-bound message is ready to inspect.</h1></div><span className={`decision-state ${expired ? "blocked" : "actionable"}`}>{expired ? "Quote expired" : `Valid for ${remainingSeconds}s`}</span></div>
+      <div className="screen-heading"><div><p className="eyebrow">Verified transaction review</p><h1 id="review-title">The exact wallet-bound message is ready to inspect.</h1></div><span className={`decision-state ${expired || remainingSeconds < 10 ? "blocked" : "actionable"}`}>{expired ? "Quote expired" : remainingSeconds < 10 ? `Expires in about ${remainingSeconds}s — act now` : `About ${remainingSeconds}s remaining`}</span></div>
       <div className="request-summary review-request-summary">
         <div><span>You requested</span><strong>${usdc(review.decision.targetUsdc)}</strong></div>
         <i>−</i><div><span>Already available</span><strong>${usdc(review.decision.existingUsdc)}</strong></div>
@@ -572,13 +660,21 @@ function ReviewScreen({ review, walletName, reviewState, onExpired, onBack, onRe
         {[...selected.checks, ...review.economicInvariants, ...review.transaction.invariants].map((item, index) => <div key={`${item.code}-${index}`} className="check passed"><span>✓</span>{"label" in item ? item.label : item.detail}</div>)}
       </div></div>
       {review.finalPyth && <ReferenceEvidence candidate={{ ...selected, pyth: review.finalPyth }} />}
-      <div className={`alert milestone-boundary ${expired ? "alert-error" : ""}`}><b>{expired ? "Quote expired" : "Your wallet has not signed anything yet."}</b><span>{expired ? "This message can no longer progress. Refresh the decision and build a new order." : "Transaction review verified. Signing will be enabled only after the next transaction-security milestone."}</span></div>
+      <div className={`alert milestone-boundary ${expired ? "alert-error" : ""}`}><b>{expired ? "Quote expired" : "Your wallet has not signed anything yet."}</b><span>{expired ? "This message can no longer progress. Refresh the decision and build a new order." : "Your wallet will sign this exact reviewed message. DrawRail will verify it before the one permitted Jupiter submission."}</span></div>
+      {signOnlyEvidence && <div className="alert"><b>Sign-only validation passed</b><span>{signOnlyEvidence} This expired test order cannot be reused.</span></div>}
+      {!review.execution.credentialsConfigured && <div className="alert alert-error"><b>Execution unavailable — deployment credentials incomplete</b><span>No wallet prompt or financial submission is available until the server is configured.</span></div>}
+      {review.execution.credentialsConfigured && !review.execution.operatorEnabled && <div className="alert"><b>Funded execution gate closed</b><span>Complete sign-only validation, then explicitly enable the operator gate. Current cap: {review.execution.maxMainnetDrawdownUsdc} USDC.</span></div>}
+      {review.execution.credentialsConfigured && review.execution.operatorEnabled && !review.execution.fundedMode && <div className="alert"><b>Mainnet read-only mode</b><span>Switch the deployment to its explicit funded-validation mode before the money-moving control can be used.</span></div>}
+      {!review.execution.withinSafetyCap && <div className="alert alert-error"><b>Above funded-validation safety cap</b><span>This drawdown exceeds the temporary {review.execution.maxMainnetDrawdownUsdc} USDC deployment cap. It cannot be signed for execution.</span></div>}
       <details className="inspect transaction-inspect"><summary>Inspect transaction</summary><div className="inspect-grid">
         <InspectRow label="Connected wallet / taker" value={review.wallet} />
         <InspectRow label="Input mint" value={review.order.inputMint} />
         <InspectRow label="Output mint" value={review.order.outputMint} />
         <InspectRow label="Raw / displayed input" value={`${review.order.inAmount} / ${selected.displayedReduction} ${selected.symbol}`} />
         <InspectRow label="Expected / minimum output" value={`${review.order.outAmount} / ${review.order.otherAmountThreshold} raw USDC`} />
+        <InspectRow label="Final-order sizing attempts" value={String(review.finalOrderSearch.attempts)} />
+        <InspectRow label="Initial / final raw input" value={`${review.finalOrderSearch.initialRawInput} / ${review.finalOrderSearch.finalRawInput}`} />
+        <InspectRow label="Initial / final minimum output" value={`${review.finalOrderSearch.initialMinimumOutput} / ${review.finalOrderSearch.finalMinimumOutput} raw USDC`} />
         <InspectRow label="Jupiter fee" value={review.order.feeBps ? `${review.order.feeBps} bps in ${review.order.feeMint ?? "unreported mint"}` : "not returned"} />
         <InspectRow label="Platform fee" value={review.order.platformFee ? JSON.stringify(review.order.platformFee) : "not returned"} />
         <InspectRow label="Router / mode" value={`${review.order.router ?? "not returned"} / ${review.order.mode ?? "not returned"}`} />
@@ -587,6 +683,9 @@ function ReviewScreen({ review, walletName, reviewState, onExpired, onBack, onRe
         <InspectRow label="Transaction version" value={String(review.transaction.version)} />
         <InspectRow label="Message SHA-256" value={review.transaction.messageHash} />
         <InspectRow label="Decision receipt expiry" value={review.expiresAt} />
+        <InspectRow label="Effective expiry basis" value={review.expiry.source.replaceAll("_", " ")} />
+        <InspectRow label="Review block height" value={review.expiry.reviewBlockHeight} />
+        <InspectRow label="Last valid block height" value={review.order.lastValidBlockHeight ?? "not returned"} />
         <InspectRow label="Lookup tables" value={review.transaction.lookupTables.length ? review.transaction.lookupTables.join(", ") : "none"} />
         <InspectRow label="Resolved accounts" value={String(review.transaction.resolvedAddressCount)} />
         <InspectRow label="Outer programs" value={review.transaction.outerProgramIds.join(", ")} />
@@ -597,9 +696,28 @@ function ReviewScreen({ review, walletName, reviewState, onExpired, onBack, onRe
         <InspectRow label="Registry version" value={review.receiptPayload.registryVersion} />
         <InspectRow label="Pyth evidence hash" value={review.receiptPayload.pyth.evidenceHash ?? "not applied"} />
       </div></details>
-      <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button>{expired && <button className="button button-secondary" onClick={onRefresh}>Refresh decision</button>}<button className="button" disabled>Sign drawdown — security milestone</button></div>
+      <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button>{!usable && (policySnapshotStillRecent ? <button className="button button-secondary" onClick={onRefreshTransaction}>Refresh transaction</button> : <button className="button button-secondary" onClick={onRefreshDecision}>Refresh decision</button>)}<button className="button button-secondary" onClick={onSignOnly} disabled={!usable || busy !== null || !review.execution.credentialsConfigured}>{busy === "signing" ? "Waiting for wallet…" : "Sign-only safety check"}</button><button className="button" onClick={onExecute} disabled={!usable || busy !== null || !review.execution.available}>{busy === "executing" ? "Waiting for wallet…" : `Sign and execute drawdown`}</button></div>
     </section>
   );
+}
+
+function SettlementScreen({ review, result, busy, onCheckStatus, onRefresh }: { review: TransactionReviewDto; result: ExecutionResultDto; busy: boolean; onCheckStatus: () => void; onRefresh: () => void }) {
+  const selected = review.decision.selected!;
+  const confirmed = result.state === "confirmed";
+  const investigation = result.state === "confirmed_needs_investigation";
+  const signature = result.settlement?.signature ?? result.execution?.signature ?? null;
+  const title = confirmed ? "Drawdown complete" : investigation ? "Confirmed — needs investigation" : result.state === "unknown" ? "Execution status unknown" : "Drawdown not completed";
+  return <section className="screen-stack review-screen" aria-labelledby="settlement-title">
+    <div className="screen-heading"><div><p className="eyebrow">Settlement receipt</p><h1 id="settlement-title">{title}</h1></div><span className={`decision-state ${confirmed ? "actionable" : "blocked"}`}>{result.state.replaceAll("_", " ")}</span></div>
+    {result.state === "unknown" && <div className="alert alert-error"><b>We submitted this transaction but cannot yet prove its final status.</b><span>DrawRail will not submit it again. Check the same signature onchain before starting another drawdown.</span></div>}
+    {investigation && <div className="alert alert-error"><b>The transaction succeeded onchain, but its accounting evidence differs from the review.</b><span>Do not retry. Preserve this receipt for investigation.</span></div>}
+    <div className="review-card"><div className="review-leg"><span>Reduced</span><strong>{compactDecimal(selected.displayedReduction ?? "0")} {selected.symbol}</strong><small>{result.settlement?.inputDebit ?? review.order.inAmount} raw</small></div><span className="review-arrow" aria-hidden>→</span><div className="review-leg receive"><span>Raised</span><strong>${usdc(result.settlement?.usdcCredit ?? result.execution?.totalOutputAmount ?? "0")} USDC</strong><small>Reviewed minimum: ${usdc(review.order.otherAmountThreshold)}</small></div></div>
+    {signature && <a className="button" href={`https://solscan.io/tx/${signature}`} target="_blank" rel="noreferrer">View on Solscan</a>}
+    <details className="inspect transaction-inspect"><summary>Inspect settlement</summary><div className="inspect-grid">
+      <InspectRow label="Solana signature" value={signature ?? "not returned"} /><InspectRow label="RPC slot" value={result.settlement?.slot ?? result.execution?.slot ?? "unconfirmed"} /><InspectRow label="Raw input" value={review.order.inAmount} /><InspectRow label="Reviewed expected / minimum" value={`${review.order.outAmount} / ${review.order.otherAmountThreshold}`} /><InspectRow label="Actual RPC USDC credit" value={result.settlement?.usdcCredit ?? "not established"} /><InspectRow label="Jupiter total input / output" value={`${result.execution?.totalInputAmount ?? "not returned"} / ${result.execution?.totalOutputAmount ?? "not returned"}`} /><InspectRow label="Jupiter route input / output" value={`${result.execution?.inputAmountResult ?? "not returned"} / ${result.execution?.outputAmountResult ?? "not returned"}`} /><InspectRow label="Jupiter fee" value={review.order.feeBps ? `${review.order.feeBps} bps · ${result.settlement?.jupiterFeeAmount ?? "unreconciled"} raw in ${review.order.feeMint ?? "unreported mint"}` : "not returned"} /><InspectRow label="Router" value={review.order.router ?? "not returned"} /><InspectRow label="Request ID" value={review.order.requestId} /><InspectRow label="Message hash" value={review.transaction.messageHash} /><InspectRow label="Receipt hash" value={review.receiptHash} /><InspectRow label="Discrepancies" value={result.settlement?.discrepancies.join(", ") || "none"} />
+    </div></details>
+    <div className="decision-actions">{result.state === "unknown" && <button className="button" onClick={onCheckStatus} disabled={busy}>{busy ? "Checking…" : "Check status"}</button>}<button className="button button-secondary" onClick={onRefresh}>Start a fresh drawdown</button></div>
+  </section>;
 }
 
 function InspectRow({ label, value }: { label: string; value: string }) {

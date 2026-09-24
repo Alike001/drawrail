@@ -2,7 +2,7 @@
 
 Date: 23 September 2026
 
-Status: implementation in progress; Milestones 1–4 complete, Milestone 5 not started
+Status: implementation in progress; Milestones 1–5 complete, Milestone 6 not started
 
 Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
@@ -729,7 +729,13 @@ Completed 24 September 2026. Added Wallet Standard connection, wallet-change inv
 
 ### Milestone 5 — signing, execute, and verification
 
-Add explicit wallet signing, last-moment rechecks, unchanged `/execute` relay, confirmation polling, balance reconciliation, and the evidence receipt. Run one explicitly approved low-value mainnet transaction.
+In progress 24 September 2026. The implemented path uses Wallet Standard `signTransaction` only, verifies the Ed25519 wallet signature over the exact reviewed message, preserves non-wallet signature slots for JupiterZ partial-signature compatibility, rechecks router expiry/multiplier/Pyth state, and relays the unchanged bytes and bound `requestId` once to `/execute`. RPC owner/mint token deltas are authoritative settlement evidence. `MAX_MAINNET_DRAWDOWN_USDC`, `FUNDED_EXECUTION_ENABLED`, `mainnet-funded` mode, and complete production credentials independently gate submission.
+
+The current replay guard is deliberately fail-closed and process-local for the single-instance hackathon deployment: once a receipt is reserved, ambiguous results cannot cause an automatic second submission. A multi-instance production deployment requires a durable atomic idempotency record before execution is enabled. Sign-only validation consumes its test receipt so that order cannot be used through the same server instance. Stage A passed with a real Phantom wallet: the exact message hash was preserved, the Ed25519 signature verified, and nothing was broadcast.
+
+Router validity is evaluated independently of DrawRail's conservative local review timeout: Metis/Dflow/OKX use `lastValidBlockHeight` when returned; JupiterZ uses `expireAt`; missing route metadata falls back to the local lifetime. DrawRail never extends an upstream validity limit. The browser's approximate deadline is the minimum of Jupiter RFQ expiry, a conservative post-simulation block-height estimate, and the 60-second local allowance. Exact current block height is still checked before signing and again before execution.
+
+The remaining exit gates are manual by design: explicit approval for the smallest-practical funded transaction, followed by RPC-reconciled evidence and genuine settlement screenshots.
 
 ### Milestone 6 — demo hardening
 

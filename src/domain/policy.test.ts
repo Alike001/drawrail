@@ -115,6 +115,7 @@ function quoteProvider(options: {
         feeMint: ASSET_REGISTRY.USDC.mint,
         platformFee: { feeBps: "10", feeMint: ASSET_REGISTRY.USDC.mint },
         expireAt: options.expireAt ?? null,
+        lastValidBlockHeight: null,
         requestId: `${symbol}-${amount}`,
       };
     },

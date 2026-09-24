@@ -30,8 +30,8 @@ why each position is selected, rejected, unavailable, or ranked lower.
 USDC need → portfolio policy → xStock evaluation → Jupiter quote → review → wallet signature → settlement evidence
 ```
 
-The current application stops at an exact, unsigned wallet-bound transaction review. Wallet signing,
-Jupiter execution, and settlement are not implemented or simulated yet.
+The application now supports an explicitly reviewed, wallet-signed drawdown through Jupiter and verifies
+the resulting wallet balance changes through Solana RPC. Funded execution remains disabled by default.
 
 ### Why Solana
 
@@ -59,15 +59,25 @@ Completed:
 - a fresh Jupiter wallet-bound final order, v0 decoding, lookup-table resolution, and unsigned simulation;
 - exact raw-input and minimum-USDC token-delta validation; and
 - canonical transaction-message hashing with a short-lived HMAC decision receipt.
+- Wallet Standard `signTransaction` integration that never asks the wallet to broadcast;
+- server verification of the exact reviewed message and the user's Ed25519 signature;
+- router-aware order expiry, last-moment multiplier/Pyth checks, and a capped operator-gated `/execute` path;
+- single-instance replay refusal and RPC token-balance settlement reconciliation; and
+- confirmed, failed, investigation, and unknown settlement receipt states.
 
-Not yet implemented:
+Validated manually:
 
-- wallet transaction signing;
-- Jupiter `/execute`;
-- funded transaction submission and RPC settlement reconciliation; and
+- Phantom Wallet Standard sign-only flow on Mainnet;
+- exact message hash preserved across the wallet boundary;
+- user signature verified server-side;
+- the Stage A transaction was not broadcast and moved no funds; and
+- one explicitly approved low-value AAPLx → USDC Mainnet transaction, with exact-message signature verification and RPC-reconciled settlement.
+
+Not currently available:
+
 - Pyth reference protection for AAPLx and NVDAx, which remain unavailable under the current trial entitlement.
 
-No funded mainnet transaction has been performed by this application.
+DrawRail has completed one low-value Mainnet AAPLx → USDC validation transaction. This proves the end-to-end path; it does not imply broad production usage. The funded control remains disabled by default and requires production RPC/Jupiter/receipt configuration, `mainnet-funded` mode, and an explicit operator gate.
 
 ### Supported assets
 
@@ -79,7 +89,7 @@ No funded mainnet transaction has been performed by this application.
 ### Safety model
 
 - Self-custodial: DrawRail never accepts or stores a wallet private key.
-- User-authorized: the planned financial action requires an explicit wallet signature.
+- User-authorized: every financial action requires an explicit wallet signature.
 - Closed assets: no hidden issuer or mint substitution.
 - Deterministic: no AI trading, autonomous portfolio management, or investment recommendation.
 - Multiplier-safe: activation-window violations hard-block rather than warn.

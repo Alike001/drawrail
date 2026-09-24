@@ -3,15 +3,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { ASSET_REGISTRY, ASSET_REGISTRY_VERSION } from "@/domain/assets";
 import { FinalOrderValidationError, validateFinalOrderEconomics } from "@/domain/final-order";
+import { assertOrderNotExpired, computeEffectiveReviewExpiry } from "@/domain/execution-safety";
 import { parseExpiryMs } from "@/domain/policy";
+import { parseUsdc } from "@/domain/money";
 import { evaluateExecutableReference, type PythPolicyEvidence } from "@/domain/pyth";
 import { assertRawDisplayParity } from "@/domain/scaled-ui";
 import { basisPoints, rawTokenAmount, tokenDecimals, usdcRawAmount } from "@/domain/types";
 import { createDecisionReceipt, hashCanonicalValue } from "@/server/decision-receipt";
 import { drawdownRequestSchema, DrawdownInputError, evaluateLiveDrawdown } from "@/server/drawdown";
 import { readServerEnv } from "@/server/env";
+import { findCoveringFinalOrder } from "@/server/final-order-search";
 import { JupiterClient } from "@/server/jupiter";
 import { evaluatePythForPortfolio } from "@/server/pyth/service";
+import { SolanaRpcClient } from "@/server/rpc";
 import { jsonSafe } from "@/server/serialize";
 import { validateUnsignedJupiterTransaction } from "@/server/transaction-validator";
 
@@ -47,12 +51,35 @@ export async function POST(request: NextRequest) {
     }
 
     const jupiter = new JupiterClient(env.JUPITER_BASE_URL, env.JUPITER_API_KEY);
-    const exactRawInput = rawTokenAmount(body.expectedDecision.selectedRawInput);
+    // A transaction-only refresh re-evaluates the complete policy first. The
+    // fresh selected raw input, not the expired browser quote, is authoritative.
+    const initialRawInput = rawTokenAmount(selected.rawInput);
     const position = snapshot.positions.find((item) => item.symbol === selected.symbol);
     if (!position || position.state !== "verified") throw new FinalOrderValidationError("refresh_required", "Selected live mint state is no longer verified.");
-    if (exactRawInput === 0n || exactRawInput > position.rawBalance) {
+    if (initialRawInput === 0n || initialRawInput > position.rawBalance) {
       throw new FinalOrderValidationError("policy_changed", "The exact reviewed raw input is no longer fundable by this wallet.");
     }
+    let finalOrderSearch;
+    try {
+      finalOrderSearch = await findCoveringFinalOrder({
+        provider: jupiter,
+        inputMint: selected.mint,
+        outputMint: ASSET_REGISTRY.USDC.mint,
+        initialRawInput,
+        maximumRawInput: position.rawBalance,
+        requiredMinimumOutput: decision.missingUsdc,
+        slippageBps: policy.maxSlippageBps,
+        taker: body.wallet,
+      });
+    } catch (error) {
+      if (error instanceof Error && /Jupiter \/order failed|HTTP 429|Too many requests/i.test(error.message)) throw error;
+      throw new FinalOrderValidationError(
+        "refresh_required",
+        "A bounded wallet-bound quote search could not cover the requested minimum. No transaction was created.",
+      );
+    }
+    const exactRawInput = finalOrderSearch.rawInput;
+    const order = finalOrderSearch.order;
     const displayedReduction = assertRawDisplayParity(
       exactRawInput,
       tokenDecimals(position.decimals),
@@ -71,13 +98,13 @@ export async function POST(request: NextRequest) {
     }
     const retainedExecutableValue = usdcRawAmount(retainedQuote?.otherAmountThreshold ?? "0");
     const retainedFloor = policy.retainedFloors[selected.symbol];
-    const order = await jupiter.finalOrder(
-      selected.mint,
-      ASSET_REGISTRY.USDC.mint,
-      exactRawInput,
-      policy.maxSlippageBps,
-      body.wallet,
-    );
+    const currentBlockHeight = BigInt(await new SolanaRpcClient(env.SOLANA_RPC_URL).call<number>("getBlockHeight", [{ commitment: "confirmed" }]));
+    assertOrderNotExpired({
+      router: order.router,
+      lastValidBlockHeight: order.lastValidBlockHeight,
+      expireAt: order.expireAt,
+      localExpiresAt: new Date(Date.now() + Number(env.DECISION_RECEIPT_TTL_SECONDS * 1_000n)).toISOString(),
+    }, BigInt(Date.now()), currentBlockHeight);
     const economicInvariants = validateFinalOrderEconomics(order, {
       inputMint: selected.mint,
       outputMint: ASSET_REGISTRY.USDC.mint,
@@ -109,10 +136,26 @@ export async function POST(request: NextRequest) {
       throw new FinalOrderValidationError("policy_changed", finalPyth.message);
     }
 
+    // Simulation and lookup-table validation can consume a meaningful part of
+    // the blockhash lifetime. Re-read height after those steps so the browser
+    // never receives a countdown based on the earlier construction height.
+    const expiryBlockHeight = BigInt(await new SolanaRpcClient(env.SOLANA_RPC_URL).call<number>("getBlockHeight", [{ commitment: "confirmed" }]));
+    assertOrderNotExpired({
+      router: order.router,
+      lastValidBlockHeight: order.lastValidBlockHeight,
+      expireAt: order.expireAt,
+      localExpiresAt: new Date(Date.now() + Number(env.DECISION_RECEIPT_TTL_SECONDS * 1_000n)).toISOString(),
+    }, BigInt(Date.now()), expiryBlockHeight);
     const createdAtMs = BigInt(Date.now());
-    const localExpiryMs = createdAtMs + env.DECISION_RECEIPT_TTL_SECONDS * 1_000n;
-    const jupiterExpiryMs = parseExpiryMs(order.expireAt);
-    const expiryMs = jupiterExpiryMs && jupiterExpiryMs < localExpiryMs ? jupiterExpiryMs : localExpiryMs;
+    const effectiveExpiry = computeEffectiveReviewExpiry({
+      nowMs: createdAtMs,
+      localTtlSeconds: env.DECISION_RECEIPT_TTL_SECONDS,
+      router: order.router,
+      jupiterExpireAt: order.expireAt,
+      currentBlockHeight: expiryBlockHeight,
+      lastValidBlockHeight: order.lastValidBlockHeight,
+    });
+    const expiryMs = effectiveExpiry.expiresAtMs;
     if (expiryMs <= createdAtMs) throw new FinalOrderValidationError("refresh_required", "The final Jupiter order is already expired.");
     const createdAt = new Date(Number(createdAtMs)).toISOString();
     const expiresAt = new Date(Number(expiryMs)).toISOString();
@@ -139,6 +182,16 @@ export async function POST(request: NextRequest) {
       platformFee: order.platformFee,
       requestId: order.requestId,
       messageHash: transaction.messageHash,
+      nonWalletSignaturesHash: transaction.nonWalletSignaturesHash,
+      router: order.router,
+      lastValidBlockHeight: order.lastValidBlockHeight,
+      jupiterExpireAt: order.expireAt,
+      multiplier: {
+        active: position.scaledUi.activeMultiplier,
+        old: position.scaledUi.oldMultiplier,
+        next: position.scaledUi.newMultiplier,
+        activationTimestamp: position.scaledUi.activationTimestamp.toString(),
+      },
       policy: {
         retainedFloors: Object.fromEntries(Object.entries(policy.retainedFloors).map(([key, value]) => [key, value.toString()])) as Record<"AAPLx" | "NVDAx" | "TSLAx", string>,
         maxSlippageBps: policy.maxSlippageBps.toString(),
@@ -185,14 +238,37 @@ export async function POST(request: NextRequest) {
         feeMint: order.feeMint,
         platformFee: order.platformFee,
         expireAt: order.expireAt,
+        lastValidBlockHeight: order.lastValidBlockHeight,
         requestId: order.requestId,
         transaction: order.transaction,
       },
       transaction,
       economicInvariants,
       finalPyth,
+      finalOrderSearch: {
+        attempts: finalOrderSearch.attempts,
+        initialRawInput: finalOrderSearch.initialRawInput,
+        initialMinimumOutput: finalOrderSearch.initialMinimumOutput,
+        finalRawInput: exactRawInput.toString(),
+        finalMinimumOutput: order.otherAmountThreshold,
+      },
       receipt,
+      receiptHash: hashCanonicalValue(receipt),
       receiptPayload,
+      execution: {
+        available: env.executionCredentialsConfigured && env.FUNDED_EXECUTION_ENABLED && env.NEXT_PUBLIC_APP_MODE === "mainnet-funded" && decision.missingUsdc <= parseUsdc(env.MAX_MAINNET_DRAWDOWN_USDC),
+        credentialsConfigured: env.executionCredentialsConfigured,
+        operatorEnabled: env.FUNDED_EXECUTION_ENABLED,
+        fundedMode: env.NEXT_PUBLIC_APP_MODE === "mainnet-funded",
+        withinSafetyCap: decision.missingUsdc <= parseUsdc(env.MAX_MAINNET_DRAWDOWN_USDC),
+        maxMainnetDrawdownUsdc: env.MAX_MAINNET_DRAWDOWN_USDC,
+      },
+      expiry: {
+        source: effectiveExpiry.source,
+        approximateBlockSeconds: effectiveExpiry.approximateBlockSeconds,
+        reviewBlockHeight: expiryBlockHeight.toString(),
+        lastValidBlockHeight: order.lastValidBlockHeight,
+      },
       createdAt,
       expiresAt,
     }), { headers: { "cache-control": "no-store" } });

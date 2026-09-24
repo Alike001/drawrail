@@ -23,11 +23,35 @@ const orderSchema = z.object({
   feeMint: z.string().nullish(),
   platformFee: platformFeeSchema,
   expireAt: optionalStringOrNumber,
+  lastValidBlockHeight: optionalStringOrNumber,
   requestId: z.string().nullish(),
   inputMint: z.string().optional(),
   outputMint: z.string().optional(),
   transaction: z.string().min(1).nullable().optional(),
 }).passthrough();
+
+const executeSchema = z.object({
+  status: z.string(),
+  signature: z.string().nullish(),
+  slot: optionalStringOrNumber,
+  code: optionalStringOrNumber,
+  inputAmountResult: optionalStringOrNumber,
+  outputAmountResult: optionalStringOrNumber,
+  totalInputAmount: optionalStringOrNumber,
+  totalOutputAmount: optionalStringOrNumber,
+  error: z.unknown().optional(),
+}).passthrough();
+
+export type JupiterExecutionResult = Readonly<{
+  status: string;
+  signature: string | null;
+  slot: string | null;
+  code: string | null;
+  inputAmountResult: string | null;
+  outputAmountResult: string | null;
+  totalInputAmount: string | null;
+  totalOutputAmount: string | null;
+}>;
 
 export type JupiterQuote = Readonly<{
   inAmount: string;
@@ -42,6 +66,7 @@ export type JupiterQuote = Readonly<{
   feeMint: string | null;
   platformFee: Record<string, unknown> | null;
   expireAt: string | null;
+  lastValidBlockHeight: string | null;
   requestId: string | null;
 }>;
 
@@ -84,6 +109,32 @@ export class JupiterClient {
     return normalizeFinalOrder(parsed);
   }
 
+  async execute(signedTransaction: string, requestId: string): Promise<JupiterExecutionResult> {
+    if (!this.apiKey) throw new Error("JUPITER_API_KEY is required for execution");
+    const url = new URL("execute", this.baseUrl.endsWith("/") ? this.baseUrl : `${this.baseUrl}/`);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": this.apiKey },
+      body: JSON.stringify({ signedTransaction, requestId }),
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const body = (await response.text()).slice(0, 500);
+      throw new Error(`Jupiter /execute failed with HTTP ${response.status}: ${body}`);
+    }
+    const parsed = executeSchema.parse(await response.json());
+    return {
+      status: parsed.status,
+      signature: parsed.signature ?? null,
+      slot: parsed.slot,
+      code: parsed.code,
+      inputAmountResult: parsed.inputAmountResult,
+      outputAmountResult: parsed.outputAmountResult,
+      totalInputAmount: parsed.totalInputAmount,
+      totalOutputAmount: parsed.totalOutputAmount,
+    };
+  }
+
   private async fetchOrder(url: URL) {
     const response = await fetch(url, {
       headers: this.apiKey ? { "x-api-key": this.apiKey } : undefined,
@@ -111,6 +162,7 @@ function normalizeQuote(parsed: z.infer<typeof orderSchema>): JupiterQuote {
     feeMint: parsed.feeMint ?? null,
     platformFee: parsed.platformFee ? { ...parsed.platformFee } : null,
     expireAt: parsed.expireAt,
+    lastValidBlockHeight: parsed.lastValidBlockHeight,
     requestId: parsed.requestId ?? null,
   };
 }

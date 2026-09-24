@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canBuildWalletReview, isReviewExpired, reviewIdentityChanged, type ReviewIdentity } from "./review-state";
+import { canBuildWalletReview, canRefreshTransactionOnly, isReviewExpired, reviewIdentityChanged, type ReviewIdentity } from "./review-state";
 
 const identity = (overrides: Partial<ReviewIdentity> = {}): ReviewIdentity => ({
   wallet: "wallet-a",
@@ -45,5 +45,12 @@ describe("transaction review state", () => {
     expect(canBuildWalletReview("read-only", "wallet-a", "wallet-a")).toBe(false);
     expect(canBuildWalletReview("connected", "wallet-b", "wallet-a")).toBe(false);
     expect(canBuildWalletReview("connected", "wallet-a", "wallet-a")).toBe(true);
+  });
+
+  it("offers transaction-only refresh only while the policy snapshot is recent", () => {
+    const created = "2026-09-24T12:00:00.000Z";
+    expect(canRefreshTransactionOnly(created, Date.parse("2026-09-24T12:01:59.999Z"))).toBe(true);
+    expect(canRefreshTransactionOnly(created, Date.parse("2026-09-24T12:02:00.000Z"))).toBe(false);
+    expect(canRefreshTransactionOnly("bad", Date.now())).toBe(false);
   });
 });

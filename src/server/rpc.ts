@@ -19,12 +19,17 @@ export class SolanaRpcClient {
   }
 
   async call<T>(method: string, params: unknown[]): Promise<T> {
-    const response = await fetch(this.url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
-      cache: "no-store",
-    });
+    let response: Response;
+    try {
+      response = await fetch(this.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++requestId, method, params }),
+        cache: "no-store",
+      });
+    } catch (error) {
+      throw new Error(`Solana RPC ${method} transport failed`, { cause: error });
+    }
     if (!response.ok) throw new Error(`Solana RPC ${method} failed with HTTP ${response.status}`);
     const envelope = rpcEnvelope.parse(await response.json());
     if (envelope.error) {

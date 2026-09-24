@@ -43,6 +43,7 @@ export type TransactionValidationEvidence = Readonly<{
   version: "legacy" | 0;
   recentBlockhash: string;
   messageHash: string;
+  nonWalletSignaturesHash: string;
   transactionBytes: number;
   signatureSlots: number;
   walletSignaturePresent: boolean;
@@ -110,22 +111,26 @@ export async function validateUnsignedJupiterTransaction(input: Readonly<{
 
   const outerProgramIds = [...new Set(instructions.map((instruction) => instruction.programAddress))];
   if (outerProgramIds.length === 0) throw new Error("Transaction contains no executable instructions");
-  await (dependencies.validatePrograms ?? defaultProgramValidator(input.rpcUrl))(outerProgramIds);
-  const blockhashValid = await (dependencies.isBlockhashValid ?? defaultBlockhashValidator(input.rpcUrl))(compiled.lifetimeToken);
+  const [programsValidated, blockhashValid, simulation] = await Promise.all([
+    (dependencies.validatePrograms ?? defaultProgramValidator(input.rpcUrl))(outerProgramIds).then(() => true),
+    (dependencies.isBlockhashValid ?? defaultBlockhashValidator(input.rpcUrl))(compiled.lifetimeToken),
+    (dependencies.validateTokenDeltas ?? defaultTokenDeltaValidator)({
+      transactionBase64: input.transactionBase64,
+      inputTokenAccount,
+      outputTokenAccount,
+      expectedRawInput: input.expectedRawInput,
+      minimumOutput: input.minimumOutput,
+      rpcUrl: input.rpcUrl,
+    }),
+  ]);
+  if (!programsValidated) throw new Error("Transaction program validation failed");
   if (!blockhashValid) throw new Error("Transaction recent blockhash is no longer valid");
-  const simulation = await (dependencies.validateTokenDeltas ?? defaultTokenDeltaValidator)({
-    transactionBase64: input.transactionBase64,
-    inputTokenAccount,
-    outputTokenAccount,
-    expectedRawInput: input.expectedRawInput,
-    minimumOutput: input.minimumOutput,
-    rpcUrl: input.rpcUrl,
-  });
 
   return {
     version: compiled.version,
     recentBlockhash: compiled.lifetimeToken,
     messageHash: createHash("sha256").update(Buffer.from(transaction.messageBytes)).digest("hex"),
+    nonWalletSignaturesHash: hashNonWalletSignatures(transaction.signatures, input.wallet),
     transactionBytes: wire.length,
     signatureSlots: Object.keys(transaction.signatures).length,
     walletSignaturePresent: input.wallet in transaction.signatures,
@@ -151,6 +156,17 @@ export async function validateUnsignedJupiterTransaction(input: Readonly<{
       { code: "simulated-token-deltas", status: "passed", detail: "Simulation debits the exact raw input and credits at least the reviewed minimum" },
     ],
   };
+}
+
+export function hashNonWalletSignatures(
+  signatures: Readonly<Record<string, Uint8Array | null>>,
+  wallet: string,
+): string {
+  const bound = Object.entries(signatures)
+    .filter(([signer]) => signer !== wallet)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([signer, signatureBytes]) => [signer, signatureBytes ? Buffer.from(signatureBytes).toString("base64") : null]);
+  return createHash("sha256").update(JSON.stringify(bound)).digest("hex");
 }
 
 async function defaultTokenDeltaValidator(request: SimulationValidationRequest): Promise<SimulationValidationEvidence> {

@@ -119,3 +119,29 @@ describe("quote-only and retained-position behavior", () => {
     )).rejects.toThrow("No routes found");
   });
 });
+
+describe("Jupiter execution", () => {
+  it("posts the exact signed transaction and request ID with authentication", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      status: "Success", signature: "sig", slot: 123, code: 0,
+      totalInputAmount: "100", totalOutputAmount: "200", inputAmountResult: "100", outputAmountResult: "200",
+    }), { status: 200 }));
+    const result = await new JupiterClient("https://api.test/swap/v2", "key").execute("signed", "request-1");
+    expect(result).toMatchObject({ status: "Success", signature: "sig", slot: "123", totalOutputAmount: "200" });
+    const init = vi.mocked(fetch).mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe(JSON.stringify({ signedTransaction: "signed", requestId: "request-1" }));
+    expect(init.headers).toMatchObject({ "x-api-key": "key" });
+  });
+
+  it("preserves failed status, code and a returned signature", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "Failed", signature: "sig", code: 6001 }), { status: 200 }));
+    await expect(new JupiterClient("https://api.test/swap/v2", "key").execute("signed", "request-1"))
+      .resolves.toMatchObject({ status: "Failed", signature: "sig", code: "6001" });
+  });
+
+  it("fails closed without credentials or on HTTP failure", async () => {
+    await expect(new JupiterClient("https://api.test/swap/v2").execute("signed", "request-1")).rejects.toThrow("JUPITER_API_KEY");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("timeout", { status: 504 }));
+    await expect(new JupiterClient("https://api.test/swap/v2", "key").execute("signed", "request-1")).rejects.toThrow("HTTP 504");
+  });
+});

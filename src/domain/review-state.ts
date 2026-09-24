@@ -45,3 +45,8 @@ export function canBuildWalletReview(
 ): boolean {
   return mode === "connected" && connectedWallet === decisionWallet;
 }
+
+export function canRefreshTransactionOnly(decisionCreatedAt: string, nowMs = Date.now(), maxPolicyAgeMs = 120_000): boolean {
+  const createdAt = Date.parse(decisionCreatedAt);
+  return Number.isFinite(createdAt) && nowMs >= createdAt && nowMs - createdAt < maxPolicyAgeMs;
+}

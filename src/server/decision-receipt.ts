@@ -21,6 +21,16 @@ export type DecisionReceiptPayload = Readonly<{
   platformFee: Record<string, unknown> | null;
   requestId: string;
   messageHash: string;
+  nonWalletSignaturesHash: string;
+  router: string | null;
+  lastValidBlockHeight: string | null;
+  jupiterExpireAt: string | null;
+  multiplier: Readonly<{
+    active: string;
+    old: string;
+    next: string;
+    activationTimestamp: string;
+  }>;
   policy: Readonly<{
     retainedFloors: Readonly<Record<"AAPLx" | "NVDAx" | "TSLAx", string>>;
     maxSlippageBps: string;

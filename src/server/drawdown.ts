@@ -35,7 +35,12 @@ export async function evaluateLiveDrawdown(
   if (maxSlippageBps > 100n) throw new DrawdownInputError("Maximum slippage cannot exceed 1%.");
   const maxDivergenceBps = basisPoints(body.referenceProtection.maxDivergenceBps);
   if (maxDivergenceBps > 1_000n) throw new DrawdownInputError("Maximum reference-price gap cannot exceed 10%.");
-  const snapshot = await readDecisionPortfolio(new SolanaRpcClient(env.SOLANA_RPC_URL), body.wallet);
+  let snapshot;
+  try {
+    snapshot = await readDecisionPortfolio(new SolanaRpcClient(env.SOLANA_RPC_URL), body.wallet);
+  } catch (error) {
+    throw new LiveEvaluationError("RPC_UNAVAILABLE", "The fresh Solana portfolio read failed.", error);
+  }
   const retainedFloors = Object.fromEntries(XSTOCK_SYMBOLS.map((symbol) => [
     symbol,
     parseUsdc(body.retainedFloors[symbol]),
@@ -68,12 +73,41 @@ export async function evaluateLiveDrawdown(
       clockSkewMs: env.PYTH_CLOCK_SKEW_MS,
     },
   } as const;
-  const decision = await evaluateDrawdown(
-    snapshot,
-    policy,
-    new JupiterClient(env.JUPITER_BASE_URL, env.JUPITER_API_KEY),
-  );
+  let decision;
+  try {
+    decision = await evaluateDrawdown(
+      snapshot,
+      policy,
+      new JupiterClient(env.JUPITER_BASE_URL, env.JUPITER_API_KEY),
+    );
+  } catch (error) {
+    throw classifyJupiterEvaluationError(error);
+  }
   return { snapshot, policy, decision };
 }
 
 export class DrawdownInputError extends Error {}
+
+export type LiveEvaluationCode = "RPC_UNAVAILABLE" | "JUPITER_AUTH" | "JUPITER_RATE_LIMIT" | "JUPITER_UNAVAILABLE";
+
+export class LiveEvaluationError extends Error {
+  constructor(
+    readonly code: LiveEvaluationCode,
+    message: string,
+    options?: unknown,
+  ) {
+    super(message, options === undefined ? undefined : { cause: options });
+    this.name = "LiveEvaluationError";
+  }
+}
+
+export function classifyJupiterEvaluationError(error: unknown): LiveEvaluationError {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/HTTP (401|403)|unauthori[sz]ed|forbidden/i.test(message)) {
+    return new LiveEvaluationError("JUPITER_AUTH", "Jupiter authentication rejected the quote request.", error);
+  }
+  if (/HTTP 429|rate limit|too many requests/i.test(message)) {
+    return new LiveEvaluationError("JUPITER_RATE_LIMIT", "Jupiter rate-limited the quote request.", error);
+  }
+  return new LiveEvaluationError("JUPITER_UNAVAILABLE", "Jupiter could not complete the live quote evaluation.", error);
+}

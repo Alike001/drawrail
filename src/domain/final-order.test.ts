@@ -19,6 +19,7 @@ const order = (overrides: Partial<JupiterFinalOrder> = {}): JupiterFinalOrder =>
   feeMint: ASSET_REGISTRY.USDC.mint,
   platformFee: { feeBps: "10", feeMint: ASSET_REGISTRY.USDC.mint },
   expireAt: null,
+  lastValidBlockHeight: null,
   requestId: "request-1",
   transaction: "AQID",
   ...overrides,

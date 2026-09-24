@@ -74,6 +74,7 @@ export type CandidateDto = {
     feeMint: string | null;
     platformFee: Record<string, unknown> | null;
     expireAt: string | null;
+    lastValidBlockHeight: string | null;
     requestId: string | null;
   };
   retainedQuote?: CandidateDto["quote"] | null;
@@ -152,6 +153,7 @@ export type TransactionReviewDto = {
     feeMint: string | null;
     platformFee: Record<string, unknown> | null;
     expireAt: string | null;
+    lastValidBlockHeight: string | null;
     requestId: string;
     transaction: string;
   };
@@ -159,6 +161,7 @@ export type TransactionReviewDto = {
     version: "legacy" | 0;
     recentBlockhash: string;
     messageHash: string;
+    nonWalletSignaturesHash: string;
     transactionBytes: number;
     signatureSlots: number;
     walletSignaturePresent: boolean;
@@ -176,11 +179,61 @@ export type TransactionReviewDto = {
   };
   economicInvariants: Array<{ code: string; status: "passed"; detail: string }>;
   finalPyth: CandidateDto["pyth"] | null;
+  finalOrderSearch: {
+    attempts: number;
+    initialRawInput: string;
+    initialMinimumOutput: string;
+    finalRawInput: string;
+    finalMinimumOutput: string;
+  };
   receipt: string;
+  receiptHash: string;
   receiptPayload: {
     registryVersion: string;
     pyth: { state: "not_applied" | "unavailable" | "valid" | "blocked"; evidenceHash: string | null };
   };
+  execution: {
+    available: boolean;
+    credentialsConfigured: boolean;
+    operatorEnabled: boolean;
+    fundedMode: boolean;
+    withinSafetyCap: boolean;
+    maxMainnetDrawdownUsdc: string;
+  };
+  expiry: {
+    source: "jupiter_expire_at" | "block_height_estimate" | "drawrail_local";
+    approximateBlockSeconds: string | null;
+    reviewBlockHeight: string;
+    lastValidBlockHeight: string | null;
+  };
   createdAt: string;
   expiresAt: string;
+};
+
+export type ExecutionResultDto = {
+  state: "confirmed" | "confirmed_needs_investigation" | "failed" | "unknown" | "refresh_required" | "execution_unavailable";
+  error?: string;
+  signatureVerified?: boolean;
+  messageHash?: string;
+  execution?: {
+    status: string;
+    signature: string | null;
+    slot: string | null;
+    code: string | null;
+    inputAmountResult: string | null;
+    outputAmountResult: string | null;
+    totalInputAmount: string | null;
+    totalOutputAmount: string | null;
+  };
+  settlement?: {
+    status: "confirmed" | "confirmed_needs_investigation" | "failed" | "unknown";
+    signature: string;
+    slot: string | null;
+    blockTime: string | null;
+    inputDebit: string | null;
+    usdcCredit: string | null;
+    jupiterFeeAmount: string | null;
+    discrepancies: string[];
+  };
+  safety?: { blockHeight: string; pythStatus: "not_applied" | "valid" };
 };
