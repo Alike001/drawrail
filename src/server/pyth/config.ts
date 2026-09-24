@@ -9,12 +9,3 @@ export const PYTH_SYMBOLS: Readonly<Record<XStockSymbol, Readonly<{ representati
   NVDAx: { representation: "Crypto.NVDAX/USD", reference: "Equity.US.NVDA/USD" },
   TSLAx: { representation: "Crypto.TSLAX/USD", reference: "Equity.US.TSLA/USD" },
 };
-
-// Live validation on 24 September 2026 could not access any representation
-// feed with the configured trial entitlement, so per-displayed-unit alignment
-// remains unproven and must fail closed.
-export const PYTH_UNIT_ALIGNMENT_VERIFIED: Readonly<Record<XStockSymbol, boolean>> = {
-  AAPLx: false,
-  NVDAx: false,
-  TSLAx: false,
-};

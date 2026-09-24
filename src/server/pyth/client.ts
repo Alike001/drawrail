@@ -45,8 +45,12 @@ export async function fetchPythCatalog(fetcher: typeof fetch = fetch): Promise<P
     minChannel: feed.min_channel,
     state: feed.state,
     quoteCurrency: feed.quote_currency,
-    marketSessionMinPublishers: Object.fromEntries(Object.entries(feed.market_sessions).map(([session, value]) => [session, value.min_pub])),
+    marketSessionMinPublishers: Object.fromEntries(Object.entries(feed.market_sessions).map(([session, value]) => [normalizeSession(session), value.min_pub])),
   }));
+}
+
+function normalizeSession(session: string) {
+  return ({ pre_market: "preMarket", post_market: "postMarket", over_night: "overNight" } as Record<string, string>)[session] ?? session;
 }
 
 export async function fetchLatestPyth(

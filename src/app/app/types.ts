@@ -10,6 +10,7 @@ export type PortfolioDto = {
     service: "disabled" | "available" | "unavailable" | "not_entitled" | "unhealthy" | "unit_unverified";
     referenceProtection: "available" | "unavailable";
     message: string;
+    assets: Record<"AAPLx" | "NVDAx" | "TSLAx", { status: "available" | "not_entitled" | "disabled" | "unhealthy"; message: string }>;
   };
   usdc: {
     mint: string;
@@ -83,11 +84,31 @@ export type CandidateDto = {
     message: string;
     divergenceBps?: string;
     thresholdBps: string;
-    representation?: Record<string, unknown>;
-    reference?: Record<string, unknown>;
+    representation?: PythObservationDto;
+    reference?: PythObservationDto;
     representationAgeUs?: string;
     referenceAgeUs?: string;
+    priceBasis?: "expected-output";
+    displayedSaleAmount?: string;
+    expectedUsdcOutput?: string;
+    minimumUsdcOutput?: string;
+    executablePrice?: string;
+    minimumExecutablePrice?: string;
+    divergenceDirection?: "above" | "below" | "equal";
   };
+};
+
+type PythObservationDto = {
+  feedId: number;
+  symbol: string;
+  price: string;
+  exponent: number;
+  confidence: string;
+  publisherCount: number;
+  marketSession: string;
+  timestampUs: string;
+  feedUpdateTimestamp: string;
+  channel: string;
 };
 
 export type DecisionDto = {

@@ -1,9 +1,8 @@
 import "server-only";
 import { XSTOCK_SYMBOLS, type XStockSymbol } from "@/domain/assets";
-import { evaluatePythPair, type PythFeedMetadata, type PythPolicyEvidence, type PythServiceStatus } from "@/domain/pyth";
-import { basisPoints, type BasisPoints } from "@/domain/types";
+import type { PythFeedMetadata, PythReferenceContext, PythServiceStatus } from "@/domain/pyth";
 import { fetchLatestPyth, fetchPythCatalog, PythHttpError } from "./client";
-import { PYTH_SYMBOLS, PYTH_UNIT_ALIGNMENT_VERIFIED } from "./config";
+import { PYTH_SYMBOLS } from "./config";
 
 export type PythRuntimeConfig = Readonly<{
   enabled: boolean;
@@ -17,52 +16,40 @@ export type PythFeatureStatus = Readonly<{
   service: PythServiceStatus;
   message: string;
   referenceProtection: "available" | "unavailable";
+  assets: Readonly<Record<XStockSymbol, Readonly<{ status: "available" | "not_entitled" | "disabled" | "unhealthy"; message: string }>>>;
 }>;
 
 export async function getPythFeatureStatus(config: PythRuntimeConfig): Promise<PythFeatureStatus> {
-  if (!config.enabled) return feature("disabled", "Reference protection is disabled in this deployment.");
-  if (!config.apiKey) return feature("unavailable", "Reference protection is not configured.");
+  if (!config.enabled) return feature("disabled", "Reference protection is disabled in this deployment.", "disabled");
+  if (!config.apiKey) return feature("unavailable", "Reference protection is not configured.", "unhealthy");
   try {
-    const resolved = await resolveRequiredFeeds();
-    await fetchLatestPyth(config.apiKey, [...resolved.values()]);
-    if (XSTOCK_SYMBOLS.some((symbol) => !PYTH_UNIT_ALIGNMENT_VERIFIED[symbol])) {
-      return feature("unit_unverified", "Reference protection is unavailable until xStock price units are verified.");
-    }
-    return { service: "available", message: "Authenticated Pyth reference protection is available.", referenceProtection: "available" };
+    const reference = await resolveTeslaReference();
+    const observations = await fetchLatestPyth(config.apiKey, [reference]);
+    if (!observations[0]) return feature("unhealthy", "The Tesla reference feed returned no observation.", "unhealthy");
+    return {
+      service: "available",
+      message: "Authenticated Tesla reference protection is available for TSLAx.",
+      referenceProtection: "available",
+      assets: {
+        AAPLx: { status: "not_entitled", message: "Apple reference protection is unavailable under the current entitlement." },
+        NVDAx: { status: "not_entitled", message: "Nvidia reference protection is unavailable under the current entitlement." },
+        TSLAx: { status: "available", message: "Tesla reference protection is available." },
+      },
+    };
   } catch (error) {
-    if (error instanceof PythHttpError && error.status === 403) return feature("not_entitled", "The configured Pyth account lacks one or more required feeds.");
-    return feature("unhealthy", "Pyth reference protection is currently unhealthy.");
+    if (error instanceof PythHttpError && error.status === 403) return feature("not_entitled", "The configured Pyth account cannot access the Tesla reference feed.", "not_entitled");
+    return feature("unhealthy", "Tesla reference protection is currently unhealthy.", "unhealthy");
   }
 }
 
 export async function evaluatePythForPortfolio(
   config: PythRuntimeConfig,
-  maxDivergenceBps: BasisPoints,
-): Promise<{ status: PythFeatureStatus; evaluations: Readonly<Partial<Record<XStockSymbol, PythPolicyEvidence>>> }> {
+): Promise<{ status: PythFeatureStatus; references: Readonly<Partial<Record<XStockSymbol, PythReferenceContext>>> }> {
   const status = await getPythFeatureStatus(config);
-  if (status.service !== "available" || !config.apiKey) return { status, evaluations: {} };
-  const resolved = await resolveRequiredFeeds();
-  const observations = await fetchLatestPyth(config.apiKey, [...resolved.values()]);
-  const byId = new Map(observations.map((feed) => [feed.feedId, feed]));
-  const evaluations: Partial<Record<XStockSymbol, PythPolicyEvidence>> = {};
-  for (const symbol of XSTOCK_SYMBOLS) {
-    const names = PYTH_SYMBOLS[symbol];
-    const representationMetadata = resolved.get(names.representation)!;
-    const referenceMetadata = resolved.get(names.reference)!;
-    const representation = byId.get(representationMetadata.id);
-    const reference = byId.get(referenceMetadata.id);
-    if (!representation || !reference) continue;
-    evaluations[symbol] = evaluatePythPair({
-      symbol, representation, reference, representationMetadata, referenceMetadata,
-      unitAlignmentVerified: PYTH_UNIT_ALIGNMENT_VERIFIED[symbol],
-    }, {
-      maxFeedAgeMs: config.maxFeedAgeMs,
-      maxConfidenceBps: basisPoints(config.maxConfidenceBps),
-      clockSkewMs: config.clockSkewMs,
-      maxDivergenceBps,
-    });
-  }
-  return { status, evaluations };
+  if (status.service !== "available" || !config.apiKey) return { status, references: {} };
+  const metadata = await resolveTeslaReference();
+  const [observation] = await fetchLatestPyth(config.apiKey, [metadata]);
+  return { status, references: observation ? { TSLAx: { observation, metadata } } : {} };
 }
 
 export async function resolveRequiredFeeds() {
@@ -79,6 +66,18 @@ export async function resolveRequiredFeeds() {
   return required;
 }
 
-function feature(service: PythServiceStatus, message: string): PythFeatureStatus {
-  return { service, message, referenceProtection: "unavailable" };
+async function resolveTeslaReference() {
+  const catalog = await fetchPythCatalog();
+  const feed = catalog.find((item) => item.symbol === PYTH_SYMBOLS.TSLAx.reference);
+  if (!feed || feed.state !== "stable" || feed.quoteCurrency !== "USD") throw new Error("Required Tesla Pyth reference is missing");
+  return feed;
+}
+
+function feature(service: PythServiceStatus, message: string, assetStatus: "not_entitled" | "disabled" | "unhealthy"): PythFeatureStatus {
+  return {
+    service,
+    message,
+    referenceProtection: "unavailable",
+    assets: Object.fromEntries(XSTOCK_SYMBOLS.map((symbol) => [symbol, { status: assetStatus, message }])) as PythFeatureStatus["assets"],
+  };
 }

@@ -3,6 +3,8 @@ import type { XStockSymbol } from "./assets";
 import type { BasisPoints } from "./types";
 import type { ReasonCode } from "./reasons";
 
+Decimal.set({ precision: 80, rounding: Decimal.ROUND_HALF_EVEN });
+
 export const PYTH_MARKET_SESSIONS = ["regular", "preMarket", "postMarket", "overNight", "closed"] as const;
 export type PythMarketSession = (typeof PYTH_MARKET_SESSIONS)[number];
 export type PythServiceStatus = "disabled" | "available" | "unavailable" | "not_entitled" | "unhealthy" | "unit_unverified";
@@ -59,7 +61,77 @@ export type PythPolicyEvidence = Readonly<{
   reference?: PythObservation;
   representationAgeUs?: string;
   referenceAgeUs?: string;
+  priceBasis?: "expected-output";
+  displayedSaleAmount?: string;
+  expectedUsdcOutput?: string;
+  minimumUsdcOutput?: string;
+  executablePrice?: string;
+  minimumExecutablePrice?: string;
+  divergenceDirection?: "above" | "below" | "equal";
 }>;
+
+export type PythReferenceContext = Readonly<{
+  observation: PythObservation;
+  metadata: PythFeedMetadata;
+}>;
+
+export function evaluateExecutableReference(input: Readonly<{
+  symbol: "TSLAx";
+  reference: PythReferenceContext;
+  displayedSaleAmount: string;
+  expectedUsdcRaw: string;
+  minimumUsdcRaw: string;
+  config: PythPolicyConfig;
+}>): PythPolicyEvidence {
+  const common = {
+    symbol: input.symbol,
+    thresholdBps: input.config.maxDivergenceBps.toString(),
+    reference: input.reference.observation,
+    priceBasis: "expected-output" as const,
+    displayedSaleAmount: input.displayedSaleAmount,
+    expectedUsdcOutput: input.expectedUsdcRaw,
+    minimumUsdcOutput: input.minimumUsdcRaw,
+  };
+  const freshness = validateFreshness(input.reference.observation, input.config);
+  if (!freshness.valid) return blocked({ ...common, referenceAgeUs: freshness.ageUs?.toString() }, "PYTH_STALE");
+  if (!["regular", "preMarket", "postMarket", "overNight"].includes(input.reference.observation.marketSession)) {
+    return blocked({ ...common, referenceAgeUs: freshness.ageUs!.toString() }, "PYTH_SESSION_INVALID");
+  }
+  if (!hasEnoughPublishers(input.reference.observation, input.reference.metadata)) {
+    return blocked(common, "PYTH_LOW_PUBLISHER_COUNT");
+  }
+  if (!confidenceAcceptable(input.reference.observation, input.config.maxConfidenceBps)) {
+    return blocked(common, "PYTH_CONFIDENCE_TOO_WIDE");
+  }
+  if (!/^\d+(?:\.\d+)?$/.test(input.displayedSaleAmount)
+    || !/^\d+$/.test(input.expectedUsdcRaw)
+    || !/^\d+$/.test(input.minimumUsdcRaw)) {
+    return blocked(common, "PYTH_UNIT_UNVERIFIED");
+  }
+  const displayed = new Decimal(input.displayedSaleAmount);
+  if (!displayed.gt(0)) return blocked(common, "PYTH_UNIT_UNVERIFIED");
+  const expectedPrice = new Decimal(input.expectedUsdcRaw).div(1_000_000).div(displayed);
+  const minimumPrice = new Decimal(input.minimumUsdcRaw).div(1_000_000).div(displayed);
+  const referencePrice = decimalPrice(input.reference.observation);
+  if (!referencePrice.isPositive()) return blocked(common, "PYTH_UNIT_UNVERIFIED");
+  const divergence = expectedPrice.minus(referencePrice).abs().div(referencePrice).mul(10_000);
+  const direction: "above" | "below" | "equal" = expectedPrice.gt(referencePrice) ? "above" : expectedPrice.lt(referencePrice) ? "below" : "equal";
+  const evidence = {
+    ...common,
+    referenceAgeUs: freshness.ageUs!.toString(),
+    executablePrice: expectedPrice.toSignificantDigits(30).toString(),
+    minimumExecutablePrice: minimumPrice.toSignificantDigits(30).toString(),
+    divergenceBps: divergence.toDecimalPlaces(6).toString(),
+    divergenceDirection: direction,
+  };
+  if (divergence.gt(input.config.maxDivergenceBps.toString())) return blocked(evidence, "PYTH_DIVERGENCE");
+  return {
+    ...evidence,
+    status: "valid",
+    reasonCode: "PYTH_VALID",
+    message: "Fresh Tesla reference and expected Jupiter execution price are within the selected gap.",
+  };
+}
 
 export function evaluatePythPair(pair: PythPair, config: PythPolicyConfig): PythPolicyEvidence {
   const common = {
@@ -163,10 +235,10 @@ function scaleMantissa(value: string, exponent: number, commonExponent: number) 
 function blocked(base: Omit<PythPolicyEvidence, "status" | "reasonCode" | "message">, reasonCode: ReasonCode): PythPolicyEvidence {
   const messages: Partial<Record<ReasonCode, string>> = {
     PYTH_STALE: "A required Pyth price is stale, carried forward, missing, or outside the allowed clock skew.",
-    PYTH_SESSION_INVALID: "The underlying stock reference is not in the accepted regular session.",
+    PYTH_SESSION_INVALID: "The underlying stock reference is closed or has an unknown session.",
     PYTH_LOW_PUBLISHER_COUNT: "A required Pyth feed has fewer publishers than its current catalog minimum.",
     PYTH_CONFIDENCE_TOO_WIDE: "A required Pyth confidence interval is wider than the configured limit.",
-    PYTH_UNIT_UNVERIFIED: "The xStock representation price unit has not been proven against displayed on-chain units.",
+    PYTH_UNIT_UNVERIFIED: "The executable xStock price could not be proven in multiplier-correct displayed units.",
     PYTH_DIVERGENCE: "The tokenized stock is outside the selected reference-price gap.",
   };
   return { ...base, status: "blocked", reasonCode, message: messages[reasonCode] ?? "Pyth reference protection could not be validated." };

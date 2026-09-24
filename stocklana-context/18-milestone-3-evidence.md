@@ -2,151 +2,159 @@
 
 Date: 24 September 2026
 
-Status: validation and fail-closed integration complete; live reference protection unavailable because the configured trial key does not entitle a complete pair and xStock units could not be verified
+Status: TSLAx-only authenticated reference protection is implemented and validated read-only. AAPLx and NVDAx protection remain unavailable under the trial entitlement.
 
 Financial action status: read-only only. No taker transaction was built, no wallet signature was requested, Jupiter `/execute` was not called, and no Solana transaction was sent.
 
-## API surface used
+## Product model selected after entitlement validation
 
-- Public current symbol catalog: `GET https://pyth.dourolabs.app/v1/symbols`.
-- Authenticated current observation: `POST https://pyth-lazer.dourolabs.app/v1/latest_price`.
+The original six-feed paired model cannot run under the configured trial entitlement: Apple and Nvidia equity references and all three `Crypto.*X/USD` feeds return 403. DrawRail does not bypass that entitlement or relabel another source as Pyth.
+
+The validated narrower model is:
+
+```text
+authenticated Pyth Tesla equity reference
+                  ↕
+exact TSLAx candidate raw input
+→ official multiplier-correct displayed TSLAx amount
+→ live Jupiter expected USDC output
+→ expected executable USD price per displayed TSLAx
+```
+
+Pyth materially affects only TSLAx eligibility. AAPLx and NVDAx remain eligible for DrawRail's non-Pyth multiplier, slippage, retained-floor, quote, and transaction-correctness rules and are labeled unprotected.
+
+## API surface and entitlement
+
+- Catalog: `GET https://pyth.dourolabs.app/v1/symbols`.
+- Authenticated observation: `POST https://pyth-lazer.dourolabs.app/v1/latest_price`.
 - Authentication: server-only bearer token from `PYTH_PRO_API_KEY`.
-- Channel: `fixed_rate@200ms`, which satisfies the catalog minimum for all six feeds.
-- Requested fields: `price`, `publisherCount`, `exponent`, `confidence`, `marketSession`, and `feedUpdateTimestamp`; the parsed envelope supplies `timestampUs` and each result supplies `priceFeedId`.
+- Channel: `fixed_rate@200ms`.
+- Requested fields: price, exponent, confidence, publisher count, market session, and feed update timestamp; the envelope supplies `timestampUs`.
 
-The public catalog is resolved by symbol at runtime. Historical feed IDs are not trusted without that resolution. Neither the API key nor an authorization header is returned by an API route, printed by validation, placed in a fixture, or recorded here.
+| Feed | Resolved ID | Trial result |
+|---|---:|---|
+| `Equity.US.TSLA/USD` | 1435 | accessible |
+| `Equity.US.AAPL/USD` | 922 | 403, not entitled |
+| `Equity.US.NVDA/USD` | 1314 | 403, not entitled |
+| `Crypto.AAPLX/USD` | 1792 | 403, not entitled |
+| `Crypto.NVDAX/USD` | 1833 | 403, not entitled |
+| `Crypto.TSLAX/USD` | 1847 | 403, not entitled |
 
-## Resolved feeds and trial entitlement
+The public catalog is resolved by symbol at runtime. Historical IDs are not trusted without current catalog validation. No bearer token or authorization header appears in output, tests, or this document.
 
-| Concept | Current symbol | Resolved Lazer ID | Catalog minimum channel | Authenticated result |
-|---|---|---:|---|---|
-| AAPLx representation | `Crypto.AAPLX/USD` | 1792 | `fixed_rate@200ms` | 403, not entitled |
-| Apple reference | `Equity.US.AAPL/USD` | 922 | `fixed_rate@50ms` | 403, not entitled |
-| NVDAx representation | `Crypto.NVDAX/USD` | 1833 | `fixed_rate@200ms` | 403, not entitled |
-| Nvidia reference | `Equity.US.NVDA/USD` | 1314 | `fixed_rate@50ms` | 403, not entitled |
-| TSLAx representation | `Crypto.TSLAX/USD` | 1847 | `fixed_rate@200ms` | 403, not entitled |
-| Tesla reference | `Equity.US.TSLA/USD` | 1435 | `fixed_rate@50ms` | Accessible |
+## Sessions and freshness
 
-The all-six batch also returned 403. Individual probes establish that five feeds are denied and only the Tesla equity reference is accessible. Feed existence and entitlement are therefore recorded as separate facts.
+Pyth documents `regular`, `preMarket`, `postMarket`, `overNight`, and `closed`. Its US-equity schedule and carry-forward semantics distinguish genuine fresh extended-session aggregates from a recent envelope carrying an older price.
 
-## Accessible payload observation
+DrawRail accepts `regular`, `preMarket`, `postMarket`, and `overNight` only when the observation is genuinely fresh and meets the configured age, confidence, and session-specific publisher rules. It rejects `closed`, unknown sessions, and carried-forward/stale data. Freshness authority is `feedUpdateTimestamp` relative to `timestampUs`; receipt time is not substituted.
 
-The 24 September 2026 validation sample for `Equity.US.TSLA/USD` returned:
+Two authenticated sessions were observed during validation:
 
-- feed ID `1435`;
-- price mantissa `37819500`, exponent `-5`;
-- confidence mantissa `500`;
-- publisher count `5`;
-- `marketSession: overNight`;
-- envelope `timestampUs: 1790229109200000`;
-- `feedUpdateTimestamp: 1790229109200000`;
-- calculated age `0` microseconds; and
-- channel `fixed_rate@200ms`.
+- earlier: `overNight`, with `feedUpdateTimestamp == timestampUs`;
+- final validation: `preMarket`, with `feedUpdateTimestamp == timestampUs`.
 
-This sample was fresh, not carried forward. It was not suitable for V1 protected comparison because the underlying-equity session was not `regular`, and the paired TSLAx representation was not entitled.
+This confirms that regular-only enforcement would incorrectly discard current Pyth aggregates. It does not make closed or carried-forward data usable.
 
-## Market-session semantics
+## Exact live observation
 
-The live catalog distinguishes the schedules:
+Final sanitized observation at `2026-09-24T10:39:18.962Z`:
 
-- each `Crypto.*X/USD` representation is cataloged as always open and exposes only a `regular` session;
-- each `Equity.US.*` reference exposes regular, pre-market, post-market, and overnight schedules; the payload vocabulary documented by Pyth is `regular`, `preMarket`, `postMarket`, `overNight`, and `closed`.
+- symbol/feed: `Equity.US.TSLA/USD`, ID `1435`;
+- price: `37671504 × 10^-5` = **$376.71504**;
+- confidence: `10704 × 10^-5` = **$0.10704**;
+- publishers: **12**, catalog pre-market minimum **2**;
+- session: **preMarket**;
+- `timestampUs`: `1790246358400000`;
+- `feedUpdateTimestamp`: `1790246358400000`;
+- feed age: **0 microseconds**;
+- result: fresh, session-valid, adequate publishers, confidence within the configured 100 bps ceiling.
 
-DrawRail therefore validates the two sides independently. For V1, the equity reference must be `regular`. The representation must match its own catalog-supported `regular` state. Missing or unknown states fail closed. The observed `overNight` Tesla equity result is deliberately rejected when protection is required.
+Microsecond timestamps remain decimal strings at the HTTP boundary and `bigint` in authoritative arithmetic.
 
-## Freshness, confidence, and publisher rules
+## Executable-price unit derivation
 
-- All microsecond timestamps are parsed from decimal strings into `bigint`; JavaScript `number` is not authoritative.
-- Feed age is `timestampUs - feedUpdateTimestamp`, not local receipt age.
-- An age above `PYTH_MAX_FEED_AGE_MS`, a missing/malformed timestamp, or a future update beyond `PYTH_CLOCK_SKEW_MS` blocks.
-- Confidence is compared as an exact integer ratio: `confidence × 10,000 <= abs(price) × maxConfidenceBps`.
-- Publisher count uses the catalog's session-specific `market_sessions[session].min_pub` where present, falling back to top-level `min_publishers`.
-- Price mantissa/exponent normalization and divergence comparison use bigint/Decimal arithmetic without binary floating point.
+The live validator used public wallet `2QfBNK2WDwSLoUQRb1zAnp3KM12N9hQ8q6ApwUMnWW2T` only as a read-only source of funded positions. No private key was used.
 
-## Unit alignment and divergence
+For the exact TSLAx candidate:
 
-Unit alignment is not proven. All three representation feeds returned 403, so no authenticated representation price could be compared with the on-chain Scaled UI multiplier, displayed economic units, and current Jupiter execution economics. The catalog description alone is not treated as proof.
+- mint: `XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB`;
+- raw input: `267268`;
+- active-multiplier/official-conversion displayed input: `0.00267268 TSLAx`;
+- Jupiter router: `metis`;
+- expected output (`outAmount`): `1005104` raw USDC = `1.005104 USDC`;
+- minimum output (`otherAmountThreshold`): `1000078` raw USDC = `1.000078 USDC`;
+- expected executable price: `1.005104 / 0.00267268` = **$376.065971234865378571321669635** per displayed TSLAx;
+- minimum-output implied price: **$374.185461783677806546238232785**.
 
-Consequently:
+The expected executable price uses `outAmount` for Pyth divergence because it represents the route's expected economics. The minimum output remains DrawRail's conservative coverage and slippage floor. Comparing Pyth with `otherAmountThreshold` would make the reference gap mechanically depend on the user's chosen slippage, so DrawRail records that implied minimum price but does not use it as the market/reference divergence basis.
 
-- all three pairs report `bothAccessible: false`;
-- all three report displayed-unit alignment `unverified`;
-- no live divergence basis-point result is claimed; and
-- production health cannot become `available` in this commit.
+No floating-point token arithmetic is authoritative. The raw input remains transaction authority, displayed amount uses the official Token-2022 conversion path, and Decimal/bigint arithmetic derives prices and basis points.
 
-Automated fixtures verify exact divergence behavior below, equal to, and above a threshold. Fixtures are labeled test-only and never enter runtime health or policy results.
+## Live divergence and policy effect
 
-## Policy-engine integration
+For the final sample:
 
-Stable reasons now include:
+```text
+abs(376.065971234865378571321669635 - 376.71504)
+÷ 376.71504 × 10,000
+= 17.229701 bps (0.17229701%) below reference
+```
 
-- `PYTH_NOT_ENABLED`
-- `PYTH_UNAVAILABLE`
-- `PYTH_NOT_ENTITLED`
-- `PYTH_FEED_MISSING`
-- `PYTH_STALE`
-- `PYTH_SESSION_INVALID`
-- `PYTH_LOW_PUBLISHER_COUNT`
-- `PYTH_CONFIDENCE_TOO_WIDE`
-- `PYTH_UNIT_UNVERIFIED`
-- `PYTH_DIVERGENCE`
-- `PYTH_VALID`
+- At the normal **100 bps (1.00%)** limit, TSLAx was valid and lower-ranked behind AAPLx under the existing deterministic selection rule.
+- At a user-configured **17 bps (0.17%)** limit, the same cached quote/evidence made TSLAx `rejected` with `PYTH_DIVERGENCE`.
+- AAPLx remained selected and explicitly unprotected; DrawRail did not disable the whole product.
+- `pythChangedEligibility` was `true`.
 
-Behavior is explicit:
+This is live read-only evidence that authenticated Pyth data materially changes a real TSLAx candidate's eligibility.
 
-- protection OFF performs no Pyth policy evaluation and records `Reference protection was not applied`;
-- protection ON with complete, valid evidence lets the existing deterministic candidate evaluation continue;
-- protection ON with unavailable, denied, stale, invalid-session, low-publisher, wide-confidence, unit-unverified, missing, or divergent evidence blocks the funded candidate before Jupiter quote selection;
-- the engine never silently changes an ON request to OFF.
+## Implementation
 
-The core non-Pyth drawdown remains operational and retains multiplier, retained-floor, slippage, quote, and transaction-correctness rules.
+- `src/server/pyth/config.ts`: endpoints, channel, and current conceptual symbols.
+- `src/server/pyth/client.ts`: current catalog and authenticated payload parsing, including catalog-session normalization.
+- `src/server/pyth/service.ts`: server-only TSLA entitlement/health and per-asset availability.
+- `src/domain/pyth.ts`: exact freshness, session, publisher, confidence, executable-price, and divergence rules.
+- `src/domain/policy.ts`: evaluates Pyth only after bounded quote search has produced the exact TSLAx raw candidate; a failed rule rejects that otherwise eligible candidate.
+- `/api/portfolio` exposes sanitized feature/per-asset status.
+- `/api/drawdown/evaluate` keeps the API key server-side and passes only validated reference context into the deterministic engine.
+- `/app` exposes an honest Tesla-only opt-in, unavailable Apple/Nvidia labels, plain-language pass/block results, and detailed Inspect evidence.
+- `scripts/validate-pyth.ts` performs a sanitized authenticated check and, when given a public wallet, runs live protection-OFF, 100-bps, and observed-gap-blocking evaluations with cached Jupiter quotes.
 
-## Server and UI changes
+Stable reason codes remain: `PYTH_NOT_ENABLED`, `PYTH_UNAVAILABLE`, `PYTH_NOT_ENTITLED`, `PYTH_FEED_MISSING`, `PYTH_STALE`, `PYTH_SESSION_INVALID`, `PYTH_LOW_PUBLISHER_COUNT`, `PYTH_CONFIDENCE_TOO_WIDE`, `PYTH_UNIT_UNVERIFIED`, `PYTH_DIVERGENCE`, and `PYTH_VALID`.
 
-- `src/server/pyth/config.ts` owns conceptual symbols, endpoints, channel, and the fail-closed unit-verification state.
-- `src/server/pyth/client.ts` owns catalog/latest-price HTTP parsing and sanitized errors.
-- `src/server/pyth/service.ts` owns feed resolution, health, entitlement, and paired policy evaluation.
-- `src/domain/pyth.ts` owns exact observation validation and divergence arithmetic.
-- `/api/portfolio` returns only safe feature status: `disabled`, `available`, `unavailable`, `not_entitled`, `unhealthy`, or `unit_unverified`.
-- `/api/drawdown/evaluate` accepts an explicit user requirement and divergence limit. OFF makes no Pyth request; ON cannot silently downgrade.
-- `/app` replaces the static milestone placeholder with a health-aware protection control. The toggle and limit appear only when service status is genuinely `available`; otherwise the interface explains why protection is unavailable.
-- Decision and Inspect surfaces show the safe policy result and, when available, feed evidence without credentials.
-
-The current `.env.local` leaves the deployment gate off, so normal local UI shows `Disabled`. Even with `PYTH_POLICY_ENABLED=true`, the authenticated health check reports `not_entitled` before reaching the separate `unit_unverified` gate.
-
-## Validation command
+## Validation commands
 
 ```text
 npm run validate:pyth
+npm run validate:pyth -- <public-wallet-address>
 ```
 
-The command loads the server-only key, resolves all six current feeds, probes entitlement individually, prints sanitized fields, records unit status, and reports `demoReady: false`. It requires no wallet and performs no financial action.
+The command never prints the API key and never constructs, signs, executes, or broadcasts a transaction.
 
-## Tests and verification
+## Tests
 
-Test-only coverage includes positive/negative exponents, large mantissas, microsecond timestamps beyond JavaScript safe-integer assumptions, fresh/stale/future/missing timestamps, every documented session plus an unknown value, publisher minima, confidence boundaries, divergence below/equal/above the limit, zero/malformed reference prices, malformed payloads, missing feeds, entitlement/API failures, protection OFF, healthy ON, unhealthy ON, deterministic integration, and a Pyth block preventing otherwise eligible selection.
+The suite covers exponent signs, large mantissas, microsecond timestamps outside JavaScript safe-integer range, fresh regular/pre-market/post-market/overnight observations, closed and stale carried-forward observations, future/missing timestamps, publisher and confidence failures, exact/below/above divergence thresholds, zero/near-zero displayed amounts, expected-output versus minimum-output semantics, enabled/disabled behavior, AAPLx/NVDAx unavailability, TSLAx rejection with another candidate eligible, and every Pyth-protected candidate blocked. All previous tests remain present.
 
 Final verification:
 
 ```text
-npm test          — 10 files, 68 tests passed (previous 46 remain passing)
+npm test          — 10 files, 80 tests passed (all previous 68 remain passing)
 npm run typecheck — passed
 npm run lint      — passed with no warnings
 npm run build     — passed; / and /app static, API routes dynamic
 git diff --check  — passed
-secret scan       — no secret-like tracked value found; gitleaks was not installed, so tracked filenames and credential patterns were checked with git-native searches
+secret scan       — passed; no tracked secret environment file or populated credential assignment found; gitleaks is not installed
 ```
 
-## Differences from prior build-spec assumptions
+## Bounty and next-milestone status
 
-1. The authenticated gate failed rather than remaining merely untested: five of six required feeds return 403.
-2. Representation and equity schedules are not modeled identically. Representation feeds are cataloged always-open with only `regular`; equity references have multiple session schedules.
-3. Publisher thresholds are session-specific in the catalog. For example, an equity feed's top-level minimum can differ from its regular-session minimum.
-4. Pyth's current REST endpoint is `POST /v1/latest_price`; the integration does not use a browser WebSocket.
+The Pyth integration is defensible as a **TSLAx-only DrawRail protection** because:
 
-## Limitations and Milestone 4 blockers
+1. authenticated feed 1435 access works;
+2. freshness/session/confidence/publisher checks use live Pyth fields and current catalog minima;
+3. the exact Jupiter candidate input is converted to multiplier-correct displayed units;
+4. expected Jupiter output produces a unit-correct executable TSLAx price;
+5. the Pyth comparison changes candidate eligibility in a live read-only evaluation.
 
-- Obtain Pyth entitlement for all five denied feeds, then rerun `validate:pyth`.
-- Prove each representation feed is priced per displayed economic xStock unit against the live Token-2022 multiplier and executable economics before changing the unit gate.
-- Reference protection is not demo-ready and the Pyth bounty integration is not yet defensible as a working authenticated paired-feed product integration.
-- Independently of Pyth, Milestone 4 still needs injected wallet connection, unsigned final transaction construction, message decoding/binding, simulation, and review security. It must continue to avoid signing, `/execute`, and broadcast until its own gates pass.
+It is not defensible to claim AAPLx/NVDAx protection or an all-assets paired-feed integration. Those remain entitlement blockers, not blockers to DrawRail's core product or the verified TSLAx feature.
+
+Milestone 4 remains blocked only on its own scope: injected wallet connection, final unsigned Jupiter transaction construction, message decoding/binding, simulation, and review security. No wallet-signing work was started here.

@@ -2,7 +2,7 @@
 
 Date: 23 September 2026
 
-Status: implementation in progress; Milestone 1 complete, Milestone 2 complete, Milestone 3 in progress
+Status: implementation in progress; Milestones 1–3 complete, Milestone 4 not started
 
 Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
@@ -24,7 +24,7 @@ The MVP succeeds through a real financial action. It does not require or claim a
 - Evaluate all supported xStock positions with non-zero balances.
 - Treat displayed/economic amounts and raw integer token amounts as distinct types.
 - Hard-block a candidate during the configured window around a pending multiplier activation.
-- When Pyth is enabled and proven usable, enforce paired representation/reference divergence plus freshness, session, confidence, and publisher rules.
+- When Pyth is explicitly enabled, protect TSLAx by comparing its multiplier-correct Jupiter executable price with an authenticated, validated Pyth Tesla equity reference. AAPLx and NVDAx remain explicitly unprotected under the current entitlement.
 - Obtain live Jupiter Swap V2 ExactIn quotes and an assembled transaction.
 - Select one eligible position deterministically and explain the selection and all rejected alternatives.
 - Show the exact mint, displayed reduction, raw input, expected and minimum USDC output, post-trade exposure, policy checks, quote expiry, and destination.
@@ -89,7 +89,7 @@ Jupiter /execute ──► Solana mainnet ──► RPC confirmation and balance
 | Wallet | Display/approve and add the user signature to the exact transaction message through `signTransaction` | Broadcast independently, mutate the message, or delegate signing to DrawRail |
 | Jupiter V2 | Quote, construct the ExactIn swap, compete routes, execute/land the signed transaction | Decide DrawRail's portfolio policy |
 | Solana RPC | Supply mint/account state and transaction evidence | Supply off-chain reference-price policy |
-| Pyth Pro | Optionally supply paired representation/reference observations | Be treated as available without authenticated evidence |
+| Pyth Pro | Optionally supply the authenticated Tesla equity reference used for TSLAx protection | Be treated as available without authenticated evidence or substituted for denied feeds |
 
 ### Why no custom Solana program
 
@@ -199,7 +199,7 @@ Portfolio snapshot values and policy decisions are related but not identical: an
 - maximum slippage in basis points, capped by a system maximum of 100 bps for V1;
 - Jupiter Price V3 overview marks and freshness metadata;
 - quote-only Jupiter V2 orders for proposed sale and remaining position;
-- Pyth service availability, the user's explicit `requiresReferenceProtection` policy, and validated paired observations when that policy is on;
+- Pyth service/asset availability, the user's explicit `requiresReferenceProtection` policy, and a validated Tesla reference when TSLAx protection is on;
 - server/RPC time and current slot; and
 - registry/config version.
 
@@ -254,50 +254,41 @@ An actionable decision contains:
 
 ## 9. Pyth service and reference-protection policy
 
-### Service availability
+### Service and per-asset availability
 
-The Pyth service is `available` only when all of the following are true:
+The authenticated trial entitlement supports a narrower protection path than the original paired-feed design. Pyth service is `available` for **TSLAx only** when:
 
 - a server-side Pyth Pro API key is configured;
-- an authenticated entitlement test succeeds for all six required feeds;
-- the live payload contains the required fields;
-- the representation and equity feeds' units have been validated against current executable/on-chain economics; and
-- startup health checks confirm the configured rules can be evaluated.
+- the current public catalog resolves stable USD feed `Equity.US.TSLA/USD` (Lazer ID `1435`);
+- the key can fetch that feed through the authenticated current-price endpoint; and
+- the live payload contains all fields required for freshness, session, publisher, and confidence validation.
 
-Required conceptual pairs are resolved against the current public Pyth symbol catalog rather than trusted from historical IDs. The IDs below were re-resolved on 24 September 2026:
-
-| Asset | Representation feed | Reference feed |
-|---|---|---|
-| AAPLx | `Crypto.AAPLX/USD` (Lazer ID 1792) | `Equity.US.AAPL/USD` (Lazer ID 922) |
-| NVDAx | `Crypto.NVDAX/USD` (Lazer ID 1833) | `Equity.US.NVDA/USD` (Lazer ID 1314) |
-| TSLAx | `Crypto.TSLAX/USD` (Lazer ID 1847) | `Equity.US.TSLA/USD` (Lazer ID 1435) |
-
-If any requirement fails, the runtime reports the Pyth service as **unavailable**. It does not fall back to Hermes, Jupiter, a cached fixture, or a simulated pass under a Pyth label.
+AAPLx and NVDAx reference protection are `not_entitled`, not simulated. Their candidates remain eligible for the non-Pyth policy path and are visibly labeled unprotected. DrawRail does not fall back to Hermes, an unauthenticated Pyth source, a cached fixture, or another equity-price provider under a Pyth label.
 
 ### User policy
 
 `requiresReferenceProtection` is an explicit user policy and is separate from service availability:
 
-- **ON:** Pyth service availability and fresh, session-valid paired observations are mandatory. A non-regular underlying-equity session, stale or carried-forward reference, excessive confidence interval, insufficient publisher count, or excessive divergence blocks the candidate. There is no automatic downgrade to an unprotected trade.
+- **ON:** For a TSLAx candidate, authenticated service availability and a fresh, session-valid Tesla observation are mandatory. Stale/carried-forward or closed data, excessive confidence, insufficient publisher count, failed executable-unit derivation, or excessive divergence blocks TSLAx. AAPLx and NVDAx are explicitly reported unavailable for reference protection and continue under the non-Pyth rules. There is no silent downgrade of TSLAx.
 - **OFF:** the core drawdown may continue without the Pyth divergence rule. The decision receipt and UI must state `reference protection not applied`. Multiplier safety, retained exposure, slippage, transaction correctness, and every other policy remain enforced.
 
 The UI may allow the policy to be turned on only when the service reports available. If a previously available service becomes unavailable after the user turned protection on, evaluation fails closed and requires a fresh user decision; it must not flip the policy off silently.
 
 ### Validation rules
 
-When `requiresReferenceProtection` is ON, validate each paired observation:
+When `requiresReferenceProtection` is ON and TSLAx is evaluated:
 
 - parse price as `mantissa × 10^exponent` with arbitrary precision;
 - compare `feedUpdateTimestamp` to the envelope `timestampUs`, not merely receipt time;
-- require both feeds' update ages to be no more than `PYTH_MAX_FEED_AGE_MS`, default 5,000 ms;
+- require feed update age to be no more than `PYTH_MAX_FEED_AGE_MS`, default 5,000 ms;
 - reject future timestamps beyond a small configured clock-skew tolerance;
-- require the underlying-equity observation's `marketSession` to be `regular` for V1; `preMarket`, `postMarket`, `overNight`, `closed`, missing, or unknown values block the candidate;
-- independently require the xStock representation observation to use its catalog-supported `regular` session. The current representation catalog entries are always-open and expose only `regular`; this is not an assumption that their trading schedule matches the underlying equity schedule;
+- accept fresh `regular`, `preMarket`, `postMarket`, and `overNight` Tesla aggregates because Pyth publishes genuine aggregates in those cataloged sessions; reject `closed`, carried-forward, missing, and unknown sessions;
 - require `publisherCount` to meet the catalog's current session-specific `market_sessions[session].min_pub` when present, otherwise the catalog's top-level `min_publishers`;
 - require `confidence / abs(price)` to be no greater than `PYTH_MAX_CONFIDENCE_BPS`, default 100 bps; and
-- compute `abs(representationPrice - referencePrice) / referencePrice × 10,000` and require it not to exceed the user's configured divergence limit, default 100 bps.
+- take the exact raw TSLAx input already selected by the bounded quote search, convert it to displayed units with the active on-chain Token-2022 multiplier and official conversion semantics, and derive `expectedExecutablePrice = Jupiter outAmount / displayed TSLAx sold`;
+- compute `abs(expectedExecutablePrice - PythTeslaReference) / abs(PythTeslaReference) × 10,000` and require it not to exceed the user's configured divergence limit, default 100 bps.
 
-The exact `marketSession` values currently documented are `regular`, `preMarket`, `postMarket`, `overNight`, and `closed`. Unknown values fail closed. A recent envelope with an old `feedUpdateTimestamp` is stale.
+`outAmount` is the comparison basis because it is Jupiter's expected executable output. `otherAmountThreshold` remains the reviewed minimum-output and coverage/slippage authority and is also recorded as a minimum implied price; using it for reference divergence would mechanically widen the apparent price gap when the user changes slippage. The exact `marketSession` values currently documented are `regular`, `preMarket`, `postMarket`, `overNight`, and `closed`. Unknown values fail closed. A recent envelope with an old `feedUpdateTimestamp` is stale.
 
 The selected Pyth observations and validation results are recorded in the decision receipt but not placed on-chain.
 
@@ -602,7 +593,7 @@ Property tests must establish that converting a displayed sale to raw never sell
 - obtain read-only AAPLx/NVDAx/TSLAx → USDC V2 quotes;
 - prove raw/displayed conversion against official Token-2022 semantics;
 - validate Jupiter Price V3 freshness and unit interpretation;
-- with a real Pyth key, read all six feeds and validate required fields/units; and
+- with a real Pyth key, authenticate the Tesla equity reference and validate the TSLAx executable-price comparison path; and
 - assemble a final `/order` transaction for a funded wallet without signing it.
 
 ### End-to-end tests
@@ -638,7 +629,7 @@ Run these gates in order. Record timestamps, request IDs, RPC slots, signatures 
 5. **Quote gate:** obtain current quote-only V2 orders for all three xStocks and verify `amount`, `outAmount`, `otherAmountThreshold`, slippage, and expiry behavior.
 6. **Retained-floor gate:** quote a proposed sale and its exact remaining raw position, then prove the engine accepts/rejects the USD floor using `otherAmountThreshold`.
 7. **Transaction gate:** use a funded wallet public key to obtain and decode a final `/order` transaction; verify exact raw input, output mint, owner, and message binding.
-8. **Pyth entitlement gate:** with a self-serve trial token, retrieve all representation/equity pairs and confirm `timestampUs`, `feedUpdateTimestamp`, `marketSession`, confidence, publisher count, update rate, and unit alignment. If this fails, keep Pyth disabled.
+8. **Pyth protection gate:** with a self-serve trial token, authenticate the Tesla equity feed, validate `timestampUs`, `feedUpdateTimestamp`, session, confidence, publisher count, and derive a multiplier-correct TSLAx executable price from the exact Jupiter candidate quote. AAPLx/NVDAx remain explicitly unavailable until separately entitled and validated.
 9. **Low-value execution gate:** with explicit wallet approval, execute the smallest practical xStock → USDC drawdown through `/execute` and save the signature.
 10. **Settlement gate:** reconcile Jupiter's reported totals with RPC pre/post token balances and verify the actual USDC credit is at least the reviewed minimum.
 11. **Failure gate:** intentionally let a quote expire and reject a modified-message fixture to prove the app requires a fresh review rather than silently rebuilding.
@@ -728,7 +719,7 @@ Implement USDC-first calculation, retained floors, bounded raw quote search, rej
 
 ### Milestone 3 — optional Pyth gate
 
-Run the authenticated entitlement/unit test and implement the server-only validator, exact arithmetic, fail-closed policy integration, health state, and user-controlled UI. Enable the production protection only if all six feeds and displayed-unit alignment pass. The configured trial key currently reaches only the TSLA equity reference, so the production protection remains unavailable.
+Implement the server-only authenticated Tesla reference client, exact freshness/session/confidence/publisher validation, multiplier-correct Jupiter executable-price comparison, fail-closed TSLAx policy integration, per-asset health state, and user-controlled UI. AAPLx/NVDAx remain explicitly unavailable under the current entitlement.
 
 ### Milestone 4 — unsigned transaction and review UI
 
@@ -744,12 +735,10 @@ Exercise failure states, rate limits, stale data, wallet changes, quote expiry, 
 
 ## 24. Unresolved blockers and validation questions
 
-### Blocking only the optional Pyth feature
+### Blocking only broader Pyth asset coverage
 
-1. **Trial entitlement:** authenticated validation on 24 September 2026 returned 403 for AAPLx representation/reference, NVDAx representation/reference, and the TSLAx representation. Only `Equity.US.TSLA/USD` was accessible. Full paired protection is therefore not entitled.
-2. **Feed-unit alignment:** no xStock representation observation was accessible, so `Crypto.*X/USD` could not be proven to correspond to the multiplier-adjusted displayed economic unit used by the portfolio calculation.
-
-Until both pass, Pyth remains disabled and the product must not make a Pyth-backed safety claim.
+1. **AAPLx/NVDAx entitlement:** authenticated validation on 24 September 2026 returned 403 for Apple and Nvidia equity references and all three crypto representation feeds. AAPLx and NVDAx protection therefore remain unavailable.
+2. **TSLAx scope:** authenticated feed 1435 plus the candidate's real Jupiter output supports a defensible TSLAx-only reference check; it does not justify a claim that every supported stock is Pyth-protected.
 
 ### Blocking demo readiness, not architecture
 
@@ -775,14 +764,14 @@ None of these requires a custom program or a different architecture. The core pr
 ### Documented but not yet exercised with funds or credentials
 
 - Jupiter `/execute` managed landing and its result fields for this exact xStock flow;
-- authenticated Pyth Pro access to a complete representation/reference pair and xStock unit alignment; and
+- authenticated Pyth protection for AAPLx/NVDAx (TSLAx uses the verified equity-reference/executable-price model); and
 - RFQ V2 actually appearing inside a sampled `/build` Metis route.
 
 ### Product rules selected here
 
 - conservative executable value as the retained-exposure definition;
 - 15-minute symmetric multiplier window;
-- explicit opt-in reference protection, with regular-session enforcement for the underlying equity and independent validation of the always-open representation feed's catalog-supported `regular` state;
+- explicit opt-in TSLAx reference protection using fresh catalog-supported equity sessions and multiplier-correct expected Jupiter execution economics;
 - deterministic smallest-percentage-reduction selection; and
 - no custom program, database, receiver, or integrator fee for the MVP.
 

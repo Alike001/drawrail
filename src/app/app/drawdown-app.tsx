@@ -267,13 +267,14 @@ function ReferenceProtectionControl(props: {
   divergenceLimit: string;
   setDivergenceLimit: (value: string) => void;
 }) {
-  const available = props.portfolio.pyth.service === "available";
+  const available = props.portfolio.pyth.assets.TSLAx.status === "available";
   return <div className={`pyth-control ${available ? "available" : "unavailable"}`}>
     <div>
       <span className={`status-icon ${available ? "selected" : "neutral"}`}>{available ? "✓" : "○"}</span>
       <div>
-        <b>Protect against abnormal stock/token price gaps</b>
-        <p>{available ? "Blocks the drawdown when the tokenized stock is too far from a fresh underlying-stock reference." : props.portfolio.pyth.message}</p>
+        <b>Tesla reference protection</b>
+        <p>{available ? "Blocks TSLAx when its live Jupiter execution price is too far from a fresh Pyth Tesla reference." : props.portfolio.pyth.message}</p>
+        <small>AAPLx: {pythAssetLabel(props.portfolio.pyth.assets.AAPLx.status)} · NVDAx: {pythAssetLabel(props.portfolio.pyth.assets.NVDAx.status)} · TSLAx: {pythAssetLabel(props.portfolio.pyth.assets.TSLAx.status)}</small>
       </div>
     </div>
     {available ? <div className="pyth-policy-inputs">
@@ -343,7 +344,7 @@ function ReferenceEvidence({ candidate }: { candidate: CandidateDto }) {
   const evidence = candidate.pyth!;
   return <div className={`reference-evidence ${evidence.status}`}>
     <b>{evidence.status === "valid" ? "PASS" : "BLOCKED"}</b>
-    <span>{evidence.status === "valid" ? `Fresh ${stockName(candidate.symbol)} reference` : evidence.message}</span>
+    <span>{evidence.status === "valid" ? `Fresh ${stockName(candidate.symbol)} reference` : evidence.reasonCode === "PYTH_DIVERGENCE" && evidence.divergenceDirection ? `Current executable ${candidate.symbol} price is ${evidence.divergenceDirection} the fresh Tesla reference.` : evidence.message}</span>
     {evidence.divergenceBps && <small>{candidate.symbol} is {bpsToPercent(evidence.divergenceBps)}% from reference · Limit {bpsToPercent(evidence.thresholdBps)}%</small>}
   </div>;
 }
@@ -370,8 +371,19 @@ function CandidateInspect({ candidate }: { candidate: CandidateDto }) {
       <InspectRow label="Pyth policy result" value={`${candidate.pyth.reasonCode}: ${candidate.pyth.message}`} />
       <InspectRow label="Divergence" value={candidate.pyth.divergenceBps ? `${candidate.pyth.divergenceBps} bps` : "not calculated"} />
       <InspectRow label="Divergence threshold" value={`${candidate.pyth.thresholdBps} bps`} />
-      <InspectRow label="Representation feed" value={candidate.pyth.representation ? JSON.stringify(candidate.pyth.representation) : "unavailable"} />
-      <InspectRow label="Equity reference feed" value={candidate.pyth.reference ? JSON.stringify(candidate.pyth.reference) : "unavailable"} />
+      <InspectRow label="Pyth reference feed ID" value={candidate.pyth.reference ? String(candidate.pyth.reference.feedId) : "unavailable"} />
+      <InspectRow label="Pyth session" value={candidate.pyth.reference?.marketSession ?? "unavailable"} />
+      <InspectRow label="Pyth timestampUs" value={candidate.pyth.reference?.timestampUs ?? "unavailable"} />
+      <InspectRow label="Pyth feedUpdateTimestamp" value={candidate.pyth.reference?.feedUpdateTimestamp ?? "unavailable"} />
+      <InspectRow label="Pyth feed age" value={candidate.pyth.referenceAgeUs ? `${candidate.pyth.referenceAgeUs} μs` : "unavailable"} />
+      <InspectRow label="Pyth confidence" value={candidate.pyth.reference?.confidence ?? "unavailable"} />
+      <InspectRow label="Pyth publisher count" value={candidate.pyth.reference ? String(candidate.pyth.reference.publisherCount) : "unavailable"} />
+      <InspectRow label="Pyth reference price" value={candidate.pyth.reference ? `${candidate.pyth.reference.price} × 10^${candidate.pyth.reference.exponent}` : "unavailable"} />
+      <InspectRow label="Displayed TSLAx sale" value={candidate.pyth.displayedSaleAmount ?? "unavailable"} />
+      <InspectRow label="Jupiter expected output" value={candidate.pyth.expectedUsdcOutput ?? "unavailable"} />
+      <InspectRow label="Jupiter minimum output" value={candidate.pyth.minimumUsdcOutput ?? "unavailable"} />
+      <InspectRow label="Executable TSLAx price" value={candidate.pyth.executablePrice ?? "unavailable"} />
+      <InspectRow label="Minimum-output price" value={candidate.pyth.minimumExecutablePrice ?? "unavailable"} />
     </>}
   </div></details>;
 }
@@ -392,9 +404,9 @@ function ReviewScreen({ decision, onBack }: { decision: DecisionDto; onBack: () 
         <div><span>Retained floor</span><b>${usdc(selected.retainedFloor)}</b></div>
         <div><span>Quote expires</span><b>{decision.expiresAt ? new Date(decision.expiresAt).toLocaleTimeString() : "Unavailable"}</b></div>
         <div><span>Jupiter fee</span><b>{selected.quote?.feeBps ? `${selected.quote.feeBps} bps` : "Not returned"}</b></div>
-        <div><span>Reference protection</span><b>{decision.pyth.status === "available" ? "Applied" : decision.pyth.status === "blocked" ? "Blocked" : "Not applied"}</b></div>
+        <div><span>Reference protection</span><b>{selected.pyth?.status === "valid" ? "Applied to TSLAx" : selected.reasonCodes.includes("PYTH_NOT_ENTITLED") ? `Unavailable for ${selected.symbol}` : decision.pyth.status === "blocked" ? "Blocked" : "Not applied"}</b></div>
       </div>
-      <div className="alert milestone-boundary"><b>Signing is intentionally unavailable</b><span>Milestone 2 stops at a live, explainable, read-only review. No transaction was built, signed, broadcast, or sent to Jupiter /execute.</span></div>
+      <div className="alert milestone-boundary"><b>Signing is intentionally unavailable</b><span>This milestone stops at a live, explainable, read-only review. No transaction was built, signed, broadcast, or sent to Jupiter /execute.</span></div>
       <CandidateInspect candidate={selected} />
       <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button><button className="button" disabled>Sign in wallet — later milestone</button></div>
     </section>
@@ -434,6 +446,10 @@ function pythStatusLabel(status: PortfolioDto["pyth"]["service"]) {
     unhealthy: "Unhealthy",
     unit_unverified: "Units unverified",
   } as const)[status];
+}
+
+function pythAssetLabel(status: PortfolioDto["pyth"]["assets"]["TSLAx"]["status"]) {
+  return status === "available" ? "available" : status === "not_entitled" ? "not entitled" : status;
 }
 
 function stockName(symbol: CandidateDto["symbol"]) {

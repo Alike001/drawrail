@@ -1,106 +1,167 @@
 import { loadEnvFile } from "node:process";
-import https from "node:https";
-import { XSTOCK_SYMBOLS } from "../src/domain/assets";
-import { fetchLatestPyth, fetchPythCatalog, PythHttpError } from "../src/server/pyth/client";
-import { PYTH_SYMBOLS, PYTH_UNIT_ALIGNMENT_VERIFIED } from "../src/server/pyth/config";
+import { setDefaultResultOrder } from "node:dns";
+import { basisPoints, usdcRawAmount } from "../src/domain/types";
+import { evaluateDrawdown, type QuoteProvider } from "../src/domain/policy";
+import { ASSET_REGISTRY } from "../src/domain/assets";
+import { fetchLatestPyth, fetchPythCatalog } from "../src/server/pyth/client";
+import { PYTH_SYMBOLS } from "../src/server/pyth/config";
+import { readServerEnv } from "../src/server/env";
+import { JupiterClient, type JupiterQuote } from "../src/server/jupiter";
+import { readDecisionPortfolio } from "../src/server/portfolio";
+import { SolanaRpcClient } from "../src/server/rpc";
 
-try { loadEnvFile(".env.local"); } catch { /* exported variables are also supported */ }
-
-async function main() {
-  const apiKey = process.env.PYTH_PRO_API_KEY;
-  if (!apiKey) throw new Error("PYTH_PRO_API_KEY is not configured. The key was not read or printed.");
-  const catalog = await fetchPythCatalog(ipv4Fetch);
-  const bySymbol = new Map(catalog.map((feed) => [feed.symbol, feed]));
-  const resolved = new Map(Object.values(PYTH_SYMBOLS).flatMap((pair) => [pair.representation, pair.reference]).map((symbol) => {
-    const feed = bySymbol.get(symbol);
-    if (!feed) throw new Error(`Required Pyth feed missing: ${symbol}`);
-    return [symbol, feed] as const;
-  }));
-  const observations = new Map<number, Awaited<ReturnType<typeof fetchLatestPyth>>[number]>();
-  const feeds = [];
-  for (const metadata of resolved.values()) {
-    try {
-      const [observation] = await fetchLatestPyth(apiKey, [metadata], ipv4Fetch);
-      if (observation) observations.set(metadata.id, observation);
-      feeds.push({
-        symbol: metadata.symbol,
-        feedId: metadata.id,
-        catalogState: metadata.state,
-        minChannel: metadata.minChannel,
-        catalogMinPublishers: metadata.minPublishers,
-        marketSessionMinPublishers: metadata.marketSessionMinPublishers,
-        entitlement: observation ? "accessible" : "feed_missing",
-        observation: observation ? {
-          price: observation.price,
-          exponent: observation.exponent,
-          confidence: observation.confidence,
-          publisherCount: observation.publisherCount,
-          marketSession: observation.marketSession,
-          timestampUs: observation.timestampUs,
-          feedUpdateTimestamp: observation.feedUpdateTimestamp,
-          ageUs: (BigInt(observation.timestampUs) - BigInt(observation.feedUpdateTimestamp)).toString(),
-          channel: observation.channel,
-        } : null,
-      });
-    } catch (error) {
-      feeds.push({
-        symbol: metadata.symbol,
-        feedId: metadata.id,
-        catalogState: metadata.state,
-        minChannel: metadata.minChannel,
-        catalogMinPublishers: metadata.minPublishers,
-        marketSessionMinPublishers: metadata.marketSessionMinPublishers,
-        entitlement: error instanceof PythHttpError && error.status === 403 ? "denied_403" : "unavailable",
-        observation: null,
-      });
-    }
-  }
-  const pairs = XSTOCK_SYMBOLS.map((symbol) => {
-    const names = PYTH_SYMBOLS[symbol];
-    const representation = resolved.get(names.representation)!;
-    const reference = resolved.get(names.reference)!;
-    return {
-      symbol,
-      representationFeedId: representation.id,
-      referenceFeedId: reference.id,
-      bothAccessible: observations.has(representation.id) && observations.has(reference.id),
-      displayedUnitAlignment: PYTH_UNIT_ALIGNMENT_VERIFIED[symbol] ? "verified" : "unverified",
-      divergenceBps: null,
-    };
-  });
-  const report = {
-    generatedAt: new Date().toISOString(),
-    api: "Pyth Pro REST POST /v1/latest_price",
-    channel: "fixed_rate@200ms",
-    keyConfigured: true,
-    feeds,
-    pairs,
-    demoReady: feeds.every((feed) => feed.entitlement === "accessible")
-      && pairs.every((pair) => pair.displayedUnitAlignment === "verified"),
-    note: "No API key, authorization header, or upstream error body is included.",
-  };
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+try {
+  loadEnvFile(".env.local");
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
 
-const ipv4Fetch = ((input: string | URL | Request, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
-  const url = input instanceof Request ? input.url : input.toString();
-  const request = https.request(url, {
-    method: init?.method ?? "GET",
-    headers: init?.headers as Record<string, string> | undefined,
-    family: 4,
-    timeout: 10_000,
-  }, (response) => {
-    const chunks: Buffer[] = [];
-    response.on("data", (chunk: Buffer) => chunks.push(chunk));
-    response.on("end", () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode ?? 500, headers: response.headers as HeadersInit })));
-  });
-  request.on("timeout", () => request.destroy(new Error("Pyth request timed out")));
-  request.on("error", reject);
-  if (typeof init?.body === "string") request.write(init.body);
-  request.end();
-})) as typeof fetch;
+const originalFetch = globalThis.fetch;
+setDefaultResultOrder("ipv4first");
+globalThis.fetch = retryingFetch as typeof fetch;
+
+async function main() {
+  const wallet = process.argv[2];
+  const env = readServerEnv();
+  if (!env.PYTH_PRO_API_KEY) throw new Error("PYTH_PRO_API_KEY is required in .env.local");
+
+  const catalog = await fetchPythCatalog();
+  const metadata = catalog.find((feed) => feed.symbol === PYTH_SYMBOLS.TSLAx.reference);
+  if (!metadata) throw new Error("Equity.US.TSLA/USD was not found in the current Pyth catalog");
+  const [observation] = await fetchLatestPyth(env.PYTH_PRO_API_KEY, [metadata]);
+  if (!observation) throw new Error("The authenticated Tesla feed returned no observation");
+
+  const report: Record<string, unknown> = {
+    generatedAt: new Date().toISOString(),
+    readOnly: true,
+    authenticatedFeed: {
+      metadata,
+      observation,
+      feedAgeUs: (BigInt(observation.timestampUs) - BigInt(observation.feedUpdateTimestamp)).toString(),
+      freshAggregate: observation.timestampUs === observation.feedUpdateTimestamp,
+    },
+    unavailableByCurrentEntitlement: [
+      PYTH_SYMBOLS.AAPLx.reference,
+      PYTH_SYMBOLS.NVDAx.reference,
+      PYTH_SYMBOLS.AAPLx.representation,
+      PYTH_SYMBOLS.NVDAx.representation,
+      PYTH_SYMBOLS.TSLAx.representation,
+    ],
+  };
+
+  if (wallet) {
+    const portfolio = await readDecisionPortfolio(new SolanaRpcClient(env.SOLANA_RPC_URL), wallet);
+    const cachedQuotes = new CachedQuoteProvider(new JupiterClient(env.JUPITER_BASE_URL, env.JUPITER_API_KEY));
+    const base = {
+      targetUsdc: usdcRawAmount(portfolio.usdc.rawBalance + 1_000_000n),
+      retainedFloors: {
+        AAPLx: usdcRawAmount(0n),
+        NVDAx: usdcRawAmount(0n),
+        TSLAx: usdcRawAmount(0n),
+      },
+      maxSlippageBps: basisPoints(50n),
+    } as const;
+    const referenceBase = {
+      required: true,
+      serviceStatus: "available" as const,
+      serviceMessage: "Authenticated Tesla reference protection is available.",
+      references: { TSLAx: { observation, metadata } },
+      maxFeedAgeMs: env.PYTH_MAX_FEED_AGE_MS,
+      maxConfidenceBps: basisPoints(env.PYTH_MAX_CONFIDENCE_BPS),
+      clockSkewMs: env.PYTH_CLOCK_SKEW_MS,
+    };
+    const now = new Date();
+    const off = await evaluateDrawdown(portfolio, base, cachedQuotes, { now });
+    const configured = await evaluateDrawdown(portfolio, {
+      ...base,
+      referenceProtection: { ...referenceBase, maxDivergenceBps: basisPoints(100n) },
+    }, cachedQuotes, { now });
+    const observedDivergence = candidate(configured, "TSLAx")?.pyth?.divergenceBps;
+    const blockingThreshold = thresholdBelow(observedDivergence);
+    const strict = await evaluateDrawdown(portfolio, {
+      ...base,
+      referenceProtection: { ...referenceBase, maxDivergenceBps: basisPoints(blockingThreshold) },
+    }, cachedQuotes, { now });
+    report.walletValidation = {
+      wallet,
+      targetUsdcRaw: base.targetUsdc.toString(),
+      existingUsdcRaw: portfolio.usdc.rawBalance.toString(),
+      missingUsdcRaw: "1000000",
+      tslaMint: ASSET_REGISTRY.TSLAx.mint,
+      protectionOff: summarizeDecision(off),
+      protectionAt100Bps: summarizeDecision(configured),
+      blockingThresholdBps: blockingThreshold.toString(),
+      protectionAtBlockingThreshold: summarizeDecision(strict),
+      pythChangedEligibility: candidate(off, "TSLAx")?.status !== candidate(strict, "TSLAx")?.status,
+      uniqueJupiterQuotes: cachedQuotes.size,
+    };
+  } else {
+    report.walletValidation = "Not run. Pass a public wallet address to validate the live TSLAx/Jupiter policy path.";
+  }
+
+  process.stdout.write(`${JSON.stringify(report, jsonSafe, 2)}\n`);
+}
+
+class CachedQuoteProvider implements QuoteProvider {
+  readonly cache = new Map<string, JupiterQuote>();
+  constructor(private readonly client: JupiterClient) {}
+  get size() { return this.cache.size; }
+  async quote(inputMint: string, outputMint: string, amount: Parameters<QuoteProvider["quote"]>[2], slippage: Parameters<QuoteProvider["quote"]>[3]) {
+    const key = `${inputMint}:${outputMint}:${amount}:${slippage}`;
+    const existing = this.cache.get(key);
+    if (existing) return existing;
+    const result = await this.client.quote(inputMint, outputMint, amount, slippage);
+    this.cache.set(key, result);
+    return result;
+  }
+}
+
+function summarizeDecision(decision: Awaited<ReturnType<typeof evaluateDrawdown>>) {
+  return {
+    outcome: decision.outcome,
+    selected: decision.selected?.symbol ?? null,
+    candidates: decision.candidates.map((item) => ({
+      symbol: item.symbol,
+      status: item.status,
+      reasonCode: item.reasonCode,
+      rawInput: item.rawInput?.toString(),
+      displayedReduction: item.displayedReduction,
+      expectedUsdcRaw: item.expectedUsdc?.toString(),
+      minimumUsdcRaw: item.minimumUsdc?.toString(),
+      router: item.quote?.router,
+      requestId: item.quote?.requestId,
+      pyth: item.pyth,
+    })),
+  };
+}
+
+function candidate(decision: Awaited<ReturnType<typeof evaluateDrawdown>>, symbol: "TSLAx") {
+  return decision.candidates.find((item) => item.symbol === symbol);
+}
+
+function thresholdBelow(divergence: string | undefined) {
+  if (!divergence || !/^\d+(?:\.\d+)?$/.test(divergence)) return 0n;
+  const [whole, fraction = ""] = divergence.split(".");
+  const floor = BigInt(whole);
+  return fraction.replaceAll("0", "").length > 0 ? floor : floor > 0n ? floor - 1n : 0n;
+}
+
+function jsonSafe(_key: string, value: unknown) {
+  return typeof value === "bigint" ? value.toString() : value;
+}
+
+async function retryingFetch(input: URL | RequestInfo, init?: RequestInit): Promise<Response> {
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    response = await originalFetch(input, init);
+    if (response.status !== 429 || attempt === 3) return response;
+    await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
+  }
+  return response!;
+}
 
 main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.message : "Pyth validation failed"}\n`);
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`Pyth validation failed: ${message}\n`);
   process.exitCode = 1;
 });

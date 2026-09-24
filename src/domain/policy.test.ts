@@ -62,6 +62,32 @@ function policy(target = 80_000_000n, floors: Partial<Record<XStockSymbol, bigin
   };
 }
 
+function protectedPolicy(required = true, price = "10000000"): NonNullable<PolicyInputs["referenceProtection"]> {
+  return {
+    required,
+    maxDivergenceBps: basisPoints(100n),
+    serviceStatus: "available",
+    serviceMessage: "Tesla reference available fixture",
+    references: {
+      TSLAx: {
+        metadata: {
+          id: 1435, symbol: "Equity.US.TSLA/USD", description: "TESLA INC / US DOLLAR",
+          exponent: -5, minPublishers: 2, minChannel: "fixed_rate@50ms", state: "stable",
+          quoteCurrency: "USD", marketSessionMinPublishers: { regular: 3, overNight: 2 },
+        },
+        observation: {
+          feedId: 1435, symbol: "Equity.US.TSLA/USD", price, exponent: -5, confidence: "1000",
+          publisherCount: 4, marketSession: "regular", timestampUs: "1790228536200000",
+          feedUpdateTimestamp: "1790228536200000", channel: "fixed_rate@200ms",
+        },
+      },
+    },
+    maxFeedAgeMs: 5_000n,
+    maxConfidenceBps: basisPoints(100n),
+    clockSkewMs: 1_000n,
+  };
+}
+
 function quoteProvider(options: {
   factors?: Partial<Record<XStockSymbol, bigint>>;
   noRoute?: XStockSymbol;
@@ -200,58 +226,49 @@ describe("portfolio drawdown policy", () => {
   it("keeps reference protection explicitly off without changing candidate selection", async () => {
     const result = await evaluateDrawdown(snapshot(), {
       ...policy(),
-      referenceProtection: {
-        required: false,
-        maxDivergenceBps: basisPoints(100n),
-        serviceStatus: "available",
-        serviceMessage: "available fixture",
-        evaluations: {},
-      },
+      referenceProtection: protectedPolicy(false),
     }, quoteProvider(), { now: NOW });
     expect(result.outcome).toBe("actionable");
     expect(result.pyth.reasonCode).toBe("PYTH_NOT_ENABLED");
   });
 
-  it("accepts healthy required Pyth evidence deterministically", async () => {
-    const valid = (symbol: XStockSymbol) => ({
-      symbol, status: "valid" as const, reasonCode: "PYTH_VALID" as const,
-      message: "fixture-only valid reference", divergenceBps: "24", thresholdBps: "100",
-    });
-    const result = await evaluateDrawdown(snapshot(), {
+  it("accepts a healthy required Tesla reference deterministically", async () => {
+    const result = await evaluateDrawdown(snapshot(20_000_000n, [position("AAPLx", 0n), position("NVDAx", 0n), position("TSLAx")]), {
       ...policy(),
-      referenceProtection: {
-        required: true,
-        maxDivergenceBps: basisPoints(100n),
-        serviceStatus: "available",
-        serviceMessage: "available fixture",
-        evaluations: { AAPLx: valid("AAPLx"), NVDAx: valid("NVDAx"), TSLAx: valid("TSLAx") },
-      },
+      referenceProtection: protectedPolicy(),
     }, quoteProvider(), { now: NOW });
-    expect(result.selected?.symbol).toBe("AAPLx");
+    expect(result.selected?.symbol).toBe("TSLAx");
     expect(result.selected?.reasonCodes).toContain("PYTH_VALID");
   });
 
-  it("blocks an otherwise eligible candidate when required Pyth is unhealthy without quoting", async () => {
+  it("blocks a TSLAx candidate when required Pyth is unhealthy without quoting", async () => {
     let calls = 0;
     const provider: QuoteProvider = { quote: async () => { calls += 1; throw new Error("unexpected"); } };
     const result = await evaluateDrawdown(
-      snapshot(20_000_000n, [position("AAPLx"), position("NVDAx", 0n), position("TSLAx", 0n)]),
+      snapshot(20_000_000n, [position("AAPLx", 0n), position("NVDAx", 0n), position("TSLAx")]),
       {
         ...policy(),
-        referenceProtection: {
-          required: true,
-          maxDivergenceBps: basisPoints(100n),
-          serviceStatus: "not_entitled",
-          serviceMessage: "The configured Pyth account lacks required feeds.",
-          evaluations: {},
-        },
+        referenceProtection: { ...protectedPolicy(), serviceStatus: "not_entitled", serviceMessage: "Tesla reference unavailable", references: {} },
       },
       provider,
       { now: NOW },
     );
     expect(result.outcome).toBe("blocked");
-    expect(result.candidates[0].reasonCode).toBe("PYTH_NOT_ENTITLED");
+    expect(result.candidates[2].reasonCode).toBe("PYTH_NOT_ENTITLED");
     expect(calls).toBe(0);
+  });
+
+  it("rejects protected TSLAx while leaving an unprotected AAPLx candidate eligible", async () => {
+    const result = await evaluateDrawdown(
+      snapshot(20_000_000n, [position("AAPLx"), position("NVDAx", 0n), position("TSLAx")]),
+      { ...policy(), referenceProtection: protectedPolicy(true, "20000000") },
+      quoteProvider(),
+      { now: NOW },
+    );
+    expect(result.selected?.symbol).toBe("AAPLx");
+    expect(result.candidates.find((candidate) => candidate.symbol === "TSLAx")?.reasonCode).toBe("PYTH_DIVERGENCE");
+    expect(result.candidates.find((candidate) => candidate.symbol === "AAPLx")?.reasonCodes).toContain("PYTH_NOT_ENTITLED");
+    expect(result.candidates.find((candidate) => candidate.symbol === "NVDAx")?.reasonCodes).toContain("PYTH_NOT_ENTITLED");
   });
 
   it("handles an all-zero portfolio", async () => {

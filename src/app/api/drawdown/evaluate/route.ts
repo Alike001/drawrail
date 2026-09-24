@@ -54,12 +54,12 @@ export async function POST(request: NextRequest) {
         maxFeedAgeMs: env.PYTH_MAX_FEED_AGE_MS,
         maxConfidenceBps: env.PYTH_MAX_CONFIDENCE_BPS,
         clockSkewMs: env.PYTH_CLOCK_SKEW_MS,
-      }, maxDivergenceBps)
+      })
       : { status: {
         service: env.PYTH_POLICY_ENABLED ? "unavailable" as const : "disabled" as const,
         message: "Reference protection was not requested.",
         referenceProtection: "unavailable" as const,
-      }, evaluations: {} };
+      }, references: {} };
     const decision = await evaluateDrawdown(snapshot, {
       targetUsdc,
       retainedFloors: floors,
@@ -69,7 +69,10 @@ export async function POST(request: NextRequest) {
         maxDivergenceBps,
         serviceStatus: pyth.status.service,
         serviceMessage: pyth.status.message,
-        evaluations: pyth.evaluations,
+        references: pyth.references,
+        maxFeedAgeMs: env.PYTH_MAX_FEED_AGE_MS,
+        maxConfidenceBps: basisPoints(env.PYTH_MAX_CONFIDENCE_BPS),
+        clockSkewMs: env.PYTH_CLOCK_SKEW_MS,
       },
     }, new JupiterClient(env.JUPITER_BASE_URL, env.JUPITER_API_KEY));
     return NextResponse.json(jsonSafe(decision), { headers: { "cache-control": "no-store" } });

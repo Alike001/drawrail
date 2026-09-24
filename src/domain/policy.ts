@@ -13,7 +13,7 @@ import {
   type UsdcRawAmount,
 } from "./types";
 import type { JupiterQuote } from "@/server/jupiter";
-import type { PythPolicyEvidence, PythServiceStatus } from "./pyth";
+import { evaluateExecutableReference, type PythPolicyEvidence, type PythReferenceContext, type PythServiceStatus } from "./pyth";
 
 export type DecisionOutcome = "actionable" | "blocked" | "target-already-met" | "refresh-required";
 export type CandidateStatus = "selected" | "eligible" | "lower-ranked" | "rejected" | "unavailable" | "not-held";
@@ -27,7 +27,10 @@ export type PolicyInputs = Readonly<{
     maxDivergenceBps: BasisPoints;
     serviceStatus: PythServiceStatus;
     serviceMessage: string;
-    evaluations: Readonly<Partial<Record<XStockSymbol, PythPolicyEvidence>>>;
+    references: Readonly<Partial<Record<XStockSymbol, PythReferenceContext>>>;
+    maxFeedAgeMs: bigint;
+    maxConfidenceBps: BasisPoints;
+    clockSkewMs: bigint;
   }>;
 }>;
 
@@ -200,7 +203,7 @@ async function evaluateCandidate(
       pythCheck(pyth),
     ], pyth);
   }
-  if (input.referenceProtection?.required && pyth.reasonCode !== "PYTH_VALID") {
+  if (input.referenceProtection?.required && pyth.blocking) {
     return simpleCandidate(position, "rejected", pyth.reasonCode, undefined, [
       check("registry", "passed", "Supported mint and live state verified"),
       check("multiplier-window", "passed", "Outside the multiplier activation window"),
@@ -249,21 +252,38 @@ async function evaluateCandidate(
     const retainedValue = usdcRawAmount(retained?.quote.otherAmountThreshold ?? "0");
     const floor = input.retainedFloors[position.symbol];
     const shared = candidateEvidence(position, input, full, sale, retained, rawInput, remainingRaw, budget.count);
+    const quotedPyth = candidatePythAfterQuote(input, position, sale.quote, rawInput);
+    if (quotedPyth.blocking) {
+      return {
+        ...shared,
+        status: "rejected",
+        reasonCode: quotedPyth.reasonCode,
+        reason: quotedPyth.message,
+        reasonCodes: [quotedPyth.reasonCode],
+        checks: [
+          check("registry", "passed", "Supported mint and live state verified"),
+          check("multiplier-window", "passed", "Outside the multiplier activation window"),
+          check("slippage", "passed", "Quote is within the selected maximum slippage"),
+          pythCheck(quotedPyth),
+        ],
+        pyth: quotedPyth.evidence,
+      };
+    }
     if (retainedValue < floor) {
       return {
         ...shared,
         status: "rejected",
         reasonCode: "RETAINED_FLOOR",
         reason: `The conservative remaining-position quote is below the retained floor.`,
-        reasonCodes: ["RETAINED_FLOOR", pyth.reasonCode],
+        reasonCodes: ["RETAINED_FLOOR", quotedPyth.reasonCode],
         checks: [
           check("registry", "passed", "Supported mint and live state verified"),
           check("multiplier-window", "passed", "Outside the multiplier activation window"),
           check("slippage", "passed", "Quote is within the selected maximum slippage"),
           check("retained-floor", "blocked", "Conservative remaining value is below the retained floor"),
-          pythCheck(pyth),
+          pythCheck(quotedPyth),
         ],
-        pyth: pyth.evidence,
+        pyth: quotedPyth.evidence,
       };
     }
     return {
@@ -271,15 +291,15 @@ async function evaluateCandidate(
       status: "eligible",
       reasonCode: "ELIGIBLE",
       reason: REASON_COPY.ELIGIBLE,
-      reasonCodes: ["ELIGIBLE", pyth.reasonCode],
+      reasonCodes: ["ELIGIBLE", quotedPyth.reasonCode],
       checks: [
         check("registry", "passed", "Supported mint and live state verified"),
         check("multiplier-window", "passed", "Outside the multiplier activation window"),
         check("slippage", "passed", "Quote is within the selected maximum slippage"),
         check("retained-floor", "passed", "Conservative remaining value preserves the retained floor"),
-        pythCheck(pyth),
+        pythCheck(quotedPyth),
       ],
-      pyth: pyth.evidence,
+      pyth: quotedPyth.evidence,
     };
   } catch (error) {
     if (error instanceof QuoteBudgetExceeded) {
@@ -491,36 +511,69 @@ function check(code: string, status: PolicyCheck["status"], label: string): Poli
   return { code, status, label };
 }
 
-type CandidatePythState = Readonly<{ reasonCode: ReasonCode; message: string; evidence?: PythPolicyEvidence }>;
-const NOT_ENABLED_PYTH: CandidatePythState = { reasonCode: "PYTH_NOT_ENABLED", message: REASON_COPY.PYTH_NOT_ENABLED };
+type CandidatePythState = Readonly<{ reasonCode: ReasonCode; message: string; blocking: boolean; checkStatus: PolicyCheck["status"]; evidence?: PythPolicyEvidence }>;
+const NOT_ENABLED_PYTH: CandidatePythState = { reasonCode: "PYTH_NOT_ENABLED", message: REASON_COPY.PYTH_NOT_ENABLED, blocking: false, checkStatus: "not-enabled" };
 
 function candidatePythState(input: PolicyInputs, symbol: XStockSymbol): CandidatePythState {
   const policy = input.referenceProtection;
   if (!policy?.required) return NOT_ENABLED_PYTH;
+  if (symbol !== "TSLAx") return {
+    reasonCode: "PYTH_NOT_ENTITLED",
+    message: `${symbol} reference protection is unavailable; this candidate remains governed by the non-Pyth rules.`,
+    blocking: false,
+    checkStatus: "not-enabled",
+  };
   if (policy.serviceStatus !== "available") {
     const reasonCode: ReasonCode = policy.serviceStatus === "not_entitled"
       ? "PYTH_NOT_ENTITLED"
       : policy.serviceStatus === "unit_unverified" ? "PYTH_UNIT_UNVERIFIED" : "PYTH_UNAVAILABLE";
-    return { reasonCode, message: policy.serviceMessage };
+    return { reasonCode, message: policy.serviceMessage, blocking: true, checkStatus: "blocked" };
   }
-  const evidence = policy.evaluations[symbol];
-  return evidence
-    ? { reasonCode: evidence.reasonCode, message: evidence.message, evidence }
-    : { reasonCode: "PYTH_FEED_MISSING", message: REASON_COPY.PYTH_FEED_MISSING };
+  return policy.references.TSLAx
+    ? { reasonCode: "PYTH_VALID", message: "Tesla reference protection will be checked against this candidate's live Jupiter quote.", blocking: false, checkStatus: "passed" }
+    : { reasonCode: "PYTH_FEED_MISSING", message: REASON_COPY.PYTH_FEED_MISSING, blocking: true, checkStatus: "blocked" };
+}
+
+function candidatePythAfterQuote(
+  input: PolicyInputs,
+  position: PortfolioPosition,
+  quote: JupiterQuote,
+  rawInput: RawTokenAmount,
+): CandidatePythState {
+  const before = candidatePythState(input, position.symbol);
+  const policy = input.referenceProtection;
+  if (!policy?.required || position.symbol !== "TSLAx" || before.blocking) return before;
+  const reference = policy.references.TSLAx;
+  if (!reference) return { reasonCode: "PYTH_FEED_MISSING", message: REASON_COPY.PYTH_FEED_MISSING, blocking: true, checkStatus: "blocked" };
+  const displayedSaleAmount = rawToDisplayedOfficial(rawInput, tokenDecimals(position.decimals), position.scaledUi.activeMultiplier);
+  const evidence = evaluateExecutableReference({
+    symbol: "TSLAx",
+    reference,
+    displayedSaleAmount,
+    expectedUsdcRaw: quote.outAmount,
+    minimumUsdcRaw: quote.otherAmountThreshold,
+    config: {
+      maxFeedAgeMs: policy.maxFeedAgeMs,
+      maxConfidenceBps: policy.maxConfidenceBps,
+      clockSkewMs: policy.clockSkewMs,
+      maxDivergenceBps: policy.maxDivergenceBps,
+    },
+  });
+  return { reasonCode: evidence.reasonCode, message: evidence.message, blocking: evidence.status === "blocked", checkStatus: evidence.status === "valid" ? "passed" : "blocked", evidence };
 }
 
 function decisionPythState(input: PolicyInputs): DrawdownDecision["pyth"] {
   const policy = input.referenceProtection;
   if (!policy?.required) return { status: "not-enabled", reasonCode: "PYTH_NOT_ENABLED", message: REASON_COPY.PYTH_NOT_ENABLED, service: policy?.serviceStatus ?? "disabled" };
   if (policy.serviceStatus !== "available") {
-    const state = candidatePythState(input, "AAPLx");
+    const state = candidatePythState(input, "TSLAx");
     return { status: "blocked", reasonCode: state.reasonCode, message: state.message, service: policy.serviceStatus };
   }
-  return { status: "available", reasonCode: "PYTH_VALID", message: "Reference protection is required for every candidate.", service: "available" };
+  return { status: "available", reasonCode: "PYTH_VALID", message: "Tesla reference protection is required for TSLAx; Apple and Nvidia candidates remain explicitly unprotected.", service: "available" };
 }
 
 function pythCheck(pyth: CandidatePythState): PolicyCheck {
-  return check("pyth-reference", pyth.reasonCode === "PYTH_NOT_ENABLED" ? "not-enabled" : pyth.reasonCode === "PYTH_VALID" ? "passed" : "blocked", pyth.message);
+  return check("pyth-reference", pyth.checkStatus, pyth.message);
 }
 
 function uniqueReasons(codes: readonly ReasonCode[]): ReasonCode[] {

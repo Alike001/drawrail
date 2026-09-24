@@ -54,14 +54,14 @@ Completed:
 - deterministic retained-floor policy engine and candidate ranking;
 - public landing page, read-only portfolio, request, decision, and review surfaces;
 - live mainnet read-only actionable and blocked decision evidence; and
-- authenticated Pyth Pro validation, exact freshness/confidence/publisher/divergence rules, and fail-closed policy/UI infrastructure.
+- authenticated TSLAx reference protection using a fresh Pyth Tesla equity feed and multiplier-correct Jupiter executable-price evidence.
 
 Not yet implemented:
 
 - injected wallet connection and wallet signing;
 - final Jupiter transaction construction or `/execute`;
 - funded transaction submission and RPC settlement reconciliation; and
-- optional Pyth reference protection in the live product: the configured trial entitlement reaches only the TSLA equity reference, not all six required feeds, and xStock unit alignment remains unverified.
+- Pyth reference protection for AAPLx and NVDAx, which remain unavailable under the current trial entitlement.
 
 No funded mainnet transaction has been performed by this application.
 
@@ -107,7 +107,7 @@ npm run validate:pyth
 keyless quote path are suitable for limited read-only checks, but reliable deployment requires
 production credentials. Never add a wallet keypair, seed phrase, private key, or real secret to this repository.
 
-`PYTH_PRO_API_KEY` is also server-only. `validate:pyth` prints only sanitized feed metadata and observations. Reference protection stays unavailable unless all six feeds are entitled and representation units are verified; the core non-Pyth drawdown remains usable.
+`PYTH_PRO_API_KEY` is also server-only. `validate:pyth` prints only sanitized feed metadata and observations; pass a public wallet address to exercise the complete read-only TSLAx/Pyth/Jupiter policy path. TSLAx protection compares the authenticated Tesla equity reference with the expected Jupiter output per multiplier-correct displayed TSLAx unit. AAPLx and NVDAx are explicitly unprotected under the current entitlement, while the core non-Pyth drawdown remains usable.
 
 ### Hackathon
 
