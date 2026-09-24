@@ -6,7 +6,11 @@ export type PortfolioDto = {
   readOnly: true;
   chainSlot: number;
   chainTime: string;
-  pyth: { service: "unavailable"; referenceProtection: "not-enabled" };
+  pyth: {
+    service: "disabled" | "available" | "unavailable" | "not_entitled" | "unhealthy" | "unit_unverified";
+    referenceProtection: "available" | "unavailable";
+    message: string;
+  };
   usdc: {
     mint: string;
     tokenProgram: string;
@@ -73,6 +77,17 @@ export type CandidateDto = {
   };
   retainedQuote?: CandidateDto["quote"] | null;
   inspect?: Record<string, unknown>;
+  pyth?: {
+    status: "valid" | "blocked";
+    reasonCode: string;
+    message: string;
+    divergenceBps?: string;
+    thresholdBps: string;
+    representation?: Record<string, unknown>;
+    reference?: Record<string, unknown>;
+    representationAgeUs?: string;
+    referenceAgeUs?: string;
+  };
 };
 
 export type DecisionDto = {
@@ -86,6 +101,11 @@ export type DecisionDto = {
   maxSlippageBps: string;
   selected: CandidateDto | null;
   candidates: CandidateDto[];
-  pyth: { status: "not-enabled"; reasonCode: "PYTH_NOT_ENABLED"; message: string };
+  pyth: {
+    status: "not-enabled" | "available" | "blocked";
+    reasonCode: string;
+    message: string;
+    service: PortfolioDto["pyth"]["service"];
+  };
   chainSlot: number;
 };

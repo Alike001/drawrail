@@ -14,6 +14,16 @@ export const REASON_CODES = [
   "SELECTED",
   "LOWER_RANKED",
   "PYTH_NOT_ENABLED",
+  "PYTH_UNAVAILABLE",
+  "PYTH_NOT_ENTITLED",
+  "PYTH_FEED_MISSING",
+  "PYTH_STALE",
+  "PYTH_SESSION_INVALID",
+  "PYTH_LOW_PUBLISHER_COUNT",
+  "PYTH_CONFIDENCE_TOO_WIDE",
+  "PYTH_UNIT_UNVERIFIED",
+  "PYTH_DIVERGENCE",
+  "PYTH_VALID",
 ] as const;
 
 export type ReasonCode = (typeof REASON_CODES)[number];
@@ -33,5 +43,15 @@ export const REASON_COPY: Readonly<Record<ReasonCode, string>> = {
   ELIGIBLE: "This position passes the current preservation and execution rules.",
   SELECTED: "Selected by the deterministic portfolio rule.",
   LOWER_RANKED: "Eligible, but ranked behind the selected position.",
-  PYTH_NOT_ENABLED: "Pyth reference protection is not enabled in this milestone.",
+  PYTH_NOT_ENABLED: "Reference protection was not applied.",
+  PYTH_UNAVAILABLE: "Pyth reference protection is temporarily unavailable.",
+  PYTH_NOT_ENTITLED: "The configured Pyth account cannot access every required feed.",
+  PYTH_FEED_MISSING: "A required Pyth representation or stock reference feed is missing.",
+  PYTH_STALE: "A required Pyth price is stale or carried forward.",
+  PYTH_SESSION_INVALID: "The underlying stock reference is outside the accepted regular session.",
+  PYTH_LOW_PUBLISHER_COUNT: "A required Pyth feed has too few contributing publishers.",
+  PYTH_CONFIDENCE_TOO_WIDE: "A required Pyth confidence interval is too wide.",
+  PYTH_UNIT_UNVERIFIED: "The xStock reference unit has not been verified.",
+  PYTH_DIVERGENCE: "The tokenized stock is outside the permitted reference-price gap.",
+  PYTH_VALID: "Reference protection passed with fresh, session-valid Pyth data.",
 };

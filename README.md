@@ -52,15 +52,16 @@ Completed:
 - inclusive ±15-minute multiplier activation hard block;
 - live quote-only Jupiter Swap V2 evaluation;
 - deterministic retained-floor policy engine and candidate ranking;
-- public landing page, read-only portfolio, request, decision, and review surfaces; and
-- live mainnet read-only actionable and blocked decision evidence.
+- public landing page, read-only portfolio, request, decision, and review surfaces;
+- live mainnet read-only actionable and blocked decision evidence; and
+- authenticated Pyth Pro validation, exact freshness/confidence/publisher/divergence rules, and fail-closed policy/UI infrastructure.
 
 Not yet implemented:
 
 - injected wallet connection and wallet signing;
 - final Jupiter transaction construction or `/execute`;
 - funded transaction submission and RPC settlement reconciliation; and
-- optional Pyth reference protection, pending authenticated trial-feed validation.
+- optional Pyth reference protection in the live product: the configured trial entitlement reaches only the TSLA equity reference, not all six required feeds, and xStock unit alignment remains unverified.
 
 No funded mainnet transaction has been performed by this application.
 
@@ -99,11 +100,14 @@ npm run typecheck
 npm run lint
 npm run build
 npm run validate:mainnet -- <wallet-public-key>
+npm run validate:pyth
 ```
 
 `SOLANA_RPC_URL` and `JUPITER_API_KEY` are server-side only. The public RPC and currently reachable
 keyless quote path are suitable for limited read-only checks, but reliable deployment requires
 production credentials. Never add a wallet keypair, seed phrase, private key, or real secret to this repository.
+
+`PYTH_PRO_API_KEY` is also server-only. `validate:pyth` prints only sanitized feed metadata and observations. Reference protection stays unavailable unless all six feeds are entitled and representation units are verified; the core non-Pyth drawdown remains usable.
 
 ### Hackathon
 

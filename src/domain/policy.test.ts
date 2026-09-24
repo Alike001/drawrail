@@ -197,6 +197,63 @@ describe("portfolio drawdown policy", () => {
     expect(calls).toBe(0);
   });
 
+  it("keeps reference protection explicitly off without changing candidate selection", async () => {
+    const result = await evaluateDrawdown(snapshot(), {
+      ...policy(),
+      referenceProtection: {
+        required: false,
+        maxDivergenceBps: basisPoints(100n),
+        serviceStatus: "available",
+        serviceMessage: "available fixture",
+        evaluations: {},
+      },
+    }, quoteProvider(), { now: NOW });
+    expect(result.outcome).toBe("actionable");
+    expect(result.pyth.reasonCode).toBe("PYTH_NOT_ENABLED");
+  });
+
+  it("accepts healthy required Pyth evidence deterministically", async () => {
+    const valid = (symbol: XStockSymbol) => ({
+      symbol, status: "valid" as const, reasonCode: "PYTH_VALID" as const,
+      message: "fixture-only valid reference", divergenceBps: "24", thresholdBps: "100",
+    });
+    const result = await evaluateDrawdown(snapshot(), {
+      ...policy(),
+      referenceProtection: {
+        required: true,
+        maxDivergenceBps: basisPoints(100n),
+        serviceStatus: "available",
+        serviceMessage: "available fixture",
+        evaluations: { AAPLx: valid("AAPLx"), NVDAx: valid("NVDAx"), TSLAx: valid("TSLAx") },
+      },
+    }, quoteProvider(), { now: NOW });
+    expect(result.selected?.symbol).toBe("AAPLx");
+    expect(result.selected?.reasonCodes).toContain("PYTH_VALID");
+  });
+
+  it("blocks an otherwise eligible candidate when required Pyth is unhealthy without quoting", async () => {
+    let calls = 0;
+    const provider: QuoteProvider = { quote: async () => { calls += 1; throw new Error("unexpected"); } };
+    const result = await evaluateDrawdown(
+      snapshot(20_000_000n, [position("AAPLx"), position("NVDAx", 0n), position("TSLAx", 0n)]),
+      {
+        ...policy(),
+        referenceProtection: {
+          required: true,
+          maxDivergenceBps: basisPoints(100n),
+          serviceStatus: "not_entitled",
+          serviceMessage: "The configured Pyth account lacks required feeds.",
+          evaluations: {},
+        },
+      },
+      provider,
+      { now: NOW },
+    );
+    expect(result.outcome).toBe("blocked");
+    expect(result.candidates[0].reasonCode).toBe("PYTH_NOT_ENTITLED");
+    expect(calls).toBe(0);
+  });
+
   it("handles an all-zero portfolio", async () => {
     const result = await evaluateDrawdown(
       snapshot(0n, XSTOCK_SYMBOLS.map((symbol) => position(symbol, 0n))),

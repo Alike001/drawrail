@@ -10,6 +10,7 @@ import { JupiterClient } from "@/server/jupiter";
 import { readDecisionPortfolio } from "@/server/portfolio";
 import { SolanaRpcClient } from "@/server/rpc";
 import { jsonSafe } from "@/server/serialize";
+import { evaluatePythForPortfolio } from "@/server/pyth/service";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,10 @@ const requestSchema = z.object({
   targetUsdc: decimal,
   maxSlippageBps: z.union([z.string(), z.number().int()]).transform(String),
   retainedFloors: z.object({ AAPLx: decimal, NVDAx: decimal, TSLAx: decimal }),
-  referenceProtection: z.literal("not-enabled"),
+  referenceProtection: z.object({
+    required: z.boolean(),
+    maxDivergenceBps: z.union([z.string(), z.number().int()]).transform(String),
+  }),
 });
 
 export async function POST(request: NextRequest) {
@@ -34,15 +38,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Maximum slippage cannot exceed 1%." }, { status: 400 });
     }
     const env = readServerEnv();
+    const maxDivergenceBps = basisPoints(body.referenceProtection.maxDivergenceBps);
+    if (maxDivergenceBps > 1_000n) {
+      return NextResponse.json({ error: "Maximum reference-price gap cannot exceed 10%." }, { status: 400 });
+    }
     const snapshot = await readDecisionPortfolio(new SolanaRpcClient(env.SOLANA_RPC_URL), body.wallet);
     const floors = Object.fromEntries(XSTOCK_SYMBOLS.map((symbol) => [
       symbol,
       parseUsdc(body.retainedFloors[symbol]),
     ])) as Record<(typeof XSTOCK_SYMBOLS)[number], ReturnType<typeof parseUsdc>>;
+    const pyth = body.referenceProtection.required
+      ? await evaluatePythForPortfolio({
+        enabled: env.PYTH_POLICY_ENABLED,
+        apiKey: env.PYTH_PRO_API_KEY,
+        maxFeedAgeMs: env.PYTH_MAX_FEED_AGE_MS,
+        maxConfidenceBps: env.PYTH_MAX_CONFIDENCE_BPS,
+        clockSkewMs: env.PYTH_CLOCK_SKEW_MS,
+      }, maxDivergenceBps)
+      : { status: {
+        service: env.PYTH_POLICY_ENABLED ? "unavailable" as const : "disabled" as const,
+        message: "Reference protection was not requested.",
+        referenceProtection: "unavailable" as const,
+      }, evaluations: {} };
     const decision = await evaluateDrawdown(snapshot, {
       targetUsdc,
       retainedFloors: floors,
       maxSlippageBps,
+      referenceProtection: {
+        required: body.referenceProtection.required,
+        maxDivergenceBps,
+        serviceStatus: pyth.status.service,
+        serviceMessage: pyth.status.message,
+        evaluations: pyth.evaluations,
+      },
     }, new JupiterClient(env.JUPITER_BASE_URL, env.JUPITER_API_KEY));
     return NextResponse.json(jsonSafe(decision), { headers: { "cache-control": "no-store" } });
   } catch (error) {

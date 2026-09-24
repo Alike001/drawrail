@@ -159,9 +159,27 @@ input { background: white; border: 1px solid #bfc5c1; border-radius: 10px; color
 .floor-row > div { align-items: center; display: flex; width: 145px; }
 .floor-row i { color: var(--muted); font-style: normal; }
 .floor-row input { border: 0; min-height: 40px; text-align: right; }
-.pyth-disabled { align-items: center; background: #e9e7df; border: 1px solid var(--line); border-radius: 13px; display: flex; justify-content: space-between; margin-top: 18px; padding: 18px; }
-.pyth-disabled > div { align-items: flex-start; display: flex; gap: 12px; }
-.pyth-disabled p { font-size: .78rem; margin: 3px 0 0; }
+.pyth-control { align-items: center; background: #e9e7df; border: 1px solid var(--line); border-radius: 13px; display: flex; justify-content: space-between; margin-top: 18px; padding: 18px; }
+.pyth-control.available { background: var(--green-soft); border-color: #b8d1c2; }
+.pyth-control > div:first-child { align-items: flex-start; display: flex; gap: 12px; }
+.pyth-control p { font-size: .78rem; margin: 3px 0 0; }
+.pyth-policy-inputs { align-items: flex-end; display: flex; flex-direction: column; gap: 10px; }
+.protection-toggle { align-items: center; display: flex; gap: 8px; }
+.protection-toggle input { min-height: 18px; width: 18px; }
+.inline-percent { align-items: center; display: inline-flex; margin-left: 8px; }
+.inline-percent input { min-height: 38px; width: 78px; }
+.inline-percent i { color: var(--muted); font-style: normal; margin-left: 4px; }
+.reference-result { align-items: center; background: #e9e7df; border-radius: 12px; display: flex; gap: 12px; padding: 14px 18px; }
+.reference-result span { color: var(--muted); font-size: .82rem; }
+.reference-result.available { background: var(--green-soft); }
+.reference-result.blocked { background: var(--red-soft); color: var(--red); }
+.reference-evidence { border-left: 2px solid currentColor; display: flex; flex-direction: column; gap: 3px; margin: 12px 0; padding-left: 10px; }
+.reference-evidence.valid { color: #88d3aa; }
+.candidate-row .reference-evidence.valid { color: var(--green); }
+.reference-evidence.blocked { color: #f0a296; }
+.candidate-row .reference-evidence.blocked { color: var(--red); }
+.reference-evidence b { font-size: .68rem; letter-spacing: .08em; }
+.reference-evidence span, .reference-evidence small { color: inherit; font-size: .75rem; }
 .status-icon { align-items: center; border: 1px solid currentColor; border-radius: 50%; display: inline-flex; flex: 0 0 27px; height: 27px; justify-content: center; }
 .status-icon.selected { background: var(--green); color: white; }
 .status-icon.neutral { color: var(--muted); }
@@ -267,7 +285,7 @@ input { background: white; border: 1px solid #bfc5c1; border-radius: 10px; color
   .primary-action, .form-footer .button { width: 100%; }
   .need-equation { grid-template-columns: 1fr; }
   .need-equation i { display: none; }
-  .pyth-disabled, .form-footer { align-items: flex-start; flex-direction: column; gap: 15px; }
+  .pyth-control, .form-footer { align-items: flex-start; flex-direction: column; gap: 15px; }
   .request-summary { grid-template-columns: 1fr; }
   .request-summary > i { display: none; }
   .selected-numbers, .check-grid { grid-template-columns: 1fr; }

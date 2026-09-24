@@ -2,7 +2,7 @@
 
 Date: 23 September 2026
 
-Status: implementation-ready product specification; Milestone 1 complete, Milestone 2 not started
+Status: implementation in progress; Milestone 1 complete, Milestone 2 complete, Milestone 3 in progress
 
 Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
@@ -264,7 +264,7 @@ The Pyth service is `available` only when all of the following are true:
 - the representation and equity feeds' units have been validated against current executable/on-chain economics; and
 - startup health checks confirm the configured rules can be evaluated.
 
-Required pairs:
+Required conceptual pairs are resolved against the current public Pyth symbol catalog rather than trusted from historical IDs. The IDs below were re-resolved on 24 September 2026:
 
 | Asset | Representation feed | Reference feed |
 |---|---|---|
@@ -291,8 +291,9 @@ When `requiresReferenceProtection` is ON, validate each paired observation:
 - compare `feedUpdateTimestamp` to the envelope `timestampUs`, not merely receipt time;
 - require both feeds' update ages to be no more than `PYTH_MAX_FEED_AGE_MS`, default 5,000 ms;
 - reject future timestamps beyond a small configured clock-skew tolerance;
-- require both the underlying-equity and representation observations' `marketSession` to be exactly `regular` for V1; pre-market, post-market, overnight, closed, missing, or unknown values block the candidate;
-- require `publisherCount` to meet the catalog's current `min_publishers` for that feed;
+- require the underlying-equity observation's `marketSession` to be `regular` for V1; `preMarket`, `postMarket`, `overNight`, `closed`, missing, or unknown values block the candidate;
+- independently require the xStock representation observation to use its catalog-supported `regular` session. The current representation catalog entries are always-open and expose only `regular`; this is not an assumption that their trading schedule matches the underlying equity schedule;
+- require `publisherCount` to meet the catalog's current session-specific `market_sessions[session].min_pub` when present, otherwise the catalog's top-level `min_publishers`;
 - require `confidence / abs(price)` to be no greater than `PYTH_MAX_CONFIDENCE_BPS`, default 100 bps; and
 - compute `abs(representationPrice - referencePrice) / referencePrice × 10,000` and require it not to exceed the user's configured divergence limit, default 100 bps.
 
@@ -652,7 +653,7 @@ No live transaction should be attempted until gates 1–7 pass. Pyth-dependent c
 | `SOLANA_RPC_URL` | Yes | Server-only paid/reliable Solana mainnet RPC |
 | `JUPITER_API_KEY` | Yes | Jupiter Developer Platform authentication |
 | `PYTH_PRO_API_KEY` | Only for Pyth feature | Server-only Pyth Pro/Terminal authentication |
-| `PYTH_SERVICE_ENABLED` | Yes | Explicit service-availability gate; defaults to `false` and does not express the user's policy |
+| `PYTH_POLICY_ENABLED` | Yes | Explicit deployment availability gate; defaults to `false` and does not express the user's policy choice |
 | `PYTH_MAX_FEED_AGE_MS` | When Pyth enabled | Default `5000` |
 | `PYTH_MAX_CONFIDENCE_BPS` | When Pyth enabled | Default `100` |
 | `PYTH_CLOCK_SKEW_MS` | When Pyth enabled | Small allowed timestamp skew |
@@ -727,7 +728,7 @@ Implement USDC-first calculation, retained floors, bounded raw quote search, rej
 
 ### Milestone 3 — optional Pyth gate
 
-Obtain the trial key, run the entitlement/unit test, and implement the authenticated paired-feed validator only if it passes. Keep the production feature off otherwise.
+Run the authenticated entitlement/unit test and implement the server-only validator, exact arithmetic, fail-closed policy integration, health state, and user-controlled UI. Enable the production protection only if all six feeds and displayed-unit alignment pass. The configured trial key currently reaches only the TSLA equity reference, so the production protection remains unavailable.
 
 ### Milestone 4 — unsigned transaction and review UI
 
@@ -745,8 +746,8 @@ Exercise failure states, rate limits, stale data, wallet changes, quote expiry, 
 
 ### Blocking only the optional Pyth feature
 
-1. **Trial entitlement:** no authenticated trial key has yet proven access to all required `Equity.US.*` and `Crypto.*X` feeds with the needed fields and usable update rate.
-2. **Feed-unit alignment:** the `Crypto.*X/USD` price must be proven to correspond to the multiplier-adjusted displayed economic unit used by the portfolio calculation before divergence can block a trade.
+1. **Trial entitlement:** authenticated validation on 24 September 2026 returned 403 for AAPLx representation/reference, NVDAx representation/reference, and the TSLAx representation. Only `Equity.US.TSLA/USD` was accessible. Full paired protection is therefore not entitled.
+2. **Feed-unit alignment:** no xStock representation observation was accessible, so `Crypto.*X/USD` could not be proven to correspond to the multiplier-adjusted displayed economic unit used by the portfolio calculation.
 
 Until both pass, Pyth remains disabled and the product must not make a Pyth-backed safety claim.
 
@@ -766,20 +767,22 @@ None of these requires a custom program or a different architecture. The core pr
 - Current Jupiter Swap V2 returns xStock → USDC routes for all three supported xStocks and can assemble a transaction for a funded public taker.
 - Token-2022's official implementation switches to the new multiplier at/after its effective timestamp and divides by the multiplier when converting UI input to raw units.
 - The Pyth public catalog contains all six intended feeds.
+- The public catalog currently resolves Lazer IDs 1792/922 for AAPLx/AAPL, 1833/1314 for NVDAx/NVDA, and 1847/1435 for TSLAx/TSLA.
+- The authenticated trial key currently reaches only `Equity.US.TSLA/USD`; its sampled payload contained every required field, was fresh (`feedUpdateTimestamp == timestampUs`), and reported `overNight`.
 - Kamino obligation orders already implement owner-set on-chain lending triggers and permissionless execution; that is not this product.
 - Current Jupiter documentation says RFQ V2 liquidity is consumed by Metis, correcting the assumption that Metis-only `/build` excludes every form of JupiterZ liquidity.
 
 ### Documented but not yet exercised with funds or credentials
 
 - Jupiter `/execute` managed landing and its result fields for this exact xStock flow;
-- authenticated Pyth Pro trial access and paired-feed payloads; and
+- authenticated Pyth Pro access to a complete representation/reference pair and xStock unit alignment; and
 - RFQ V2 actually appearing inside a sampled `/build` Metis route.
 
 ### Product rules selected here
 
 - conservative executable value as the retained-exposure definition;
 - 15-minute symmetric multiplier window;
-- explicit opt-in reference protection, with `regular`-session-only enforcement for both paired Pyth observations when that policy is ON;
+- explicit opt-in reference protection, with regular-session enforcement for the underlying equity and independent validation of the always-open representation feed's catalog-supported `regular` state;
 - deterministic smallest-percentage-reduction selection; and
 - no custom program, database, receiver, or integrator fee for the MVP.
 

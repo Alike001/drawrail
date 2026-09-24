@@ -13,6 +13,7 @@ import {
   type UsdcRawAmount,
 } from "./types";
 import type { JupiterQuote } from "@/server/jupiter";
+import type { PythPolicyEvidence, PythServiceStatus } from "./pyth";
 
 export type DecisionOutcome = "actionable" | "blocked" | "target-already-met" | "refresh-required";
 export type CandidateStatus = "selected" | "eligible" | "lower-ranked" | "rejected" | "unavailable" | "not-held";
@@ -21,6 +22,13 @@ export type PolicyInputs = Readonly<{
   targetUsdc: UsdcRawAmount;
   retainedFloors: Readonly<Record<XStockSymbol, UsdcRawAmount>>;
   maxSlippageBps: BasisPoints;
+  referenceProtection?: Readonly<{
+    required: boolean;
+    maxDivergenceBps: BasisPoints;
+    serviceStatus: PythServiceStatus;
+    serviceMessage: string;
+    evaluations: Readonly<Partial<Record<XStockSymbol, PythPolicyEvidence>>>;
+  }>;
 }>;
 
 export type QuoteProvider = Readonly<{
@@ -56,6 +64,7 @@ export type CandidateDecision = Readonly<{
   quoteRequests?: number;
   checks: readonly PolicyCheck[];
   inspect?: Readonly<Record<string, unknown>>;
+  pyth?: PythPolicyEvidence;
 }>;
 
 export type DrawdownDecision = Readonly<{
@@ -69,7 +78,7 @@ export type DrawdownDecision = Readonly<{
   maxSlippageBps: BasisPoints;
   selected: CandidateDecision | null;
   candidates: readonly CandidateDecision[];
-  pyth: Readonly<{ status: "not-enabled"; reasonCode: "PYTH_NOT_ENABLED"; message: string }>;
+  pyth: Readonly<{ status: "not-enabled" | "available" | "blocked"; reasonCode: ReasonCode; message: string; service: PythServiceStatus }>;
   chainSlot: number;
 }>;
 
@@ -102,11 +111,7 @@ export async function evaluateDrawdown(
     existingUsdc: snapshot.usdc.rawBalance,
     missingUsdc: missing,
     maxSlippageBps: input.maxSlippageBps,
-    pyth: {
-      status: "not-enabled" as const,
-      reasonCode: "PYTH_NOT_ENABLED" as const,
-      message: REASON_COPY.PYTH_NOT_ENABLED,
-    },
+    pyth: decisionPythState(input),
     chainSlot: snapshot.chainSlot,
   };
 
@@ -183,16 +188,24 @@ async function evaluateCandidate(
   nowMs: bigint,
   options: EvaluationOptions,
 ): Promise<CandidateDecision> {
+  const pyth = candidatePythState(input, position.symbol);
   if (position.state === "unavailable") {
-    return simpleCandidate(position, "unavailable", "UNSUPPORTED_ASSET_STATE", position.error);
+    return simpleCandidate(position, "unavailable", "UNSUPPORTED_ASSET_STATE", position.error, undefined, pyth);
   }
-  if (position.rawBalance === 0n) return simpleCandidate(position, "not-held", "ZERO_BALANCE");
+  if (position.rawBalance === 0n) return simpleCandidate(position, "not-held", "ZERO_BALANCE", undefined, undefined, pyth);
   if (position.scaledUi.activationWindowBlocked) {
     return simpleCandidate(position, "unavailable", "MULTIPLIER_WINDOW", undefined, [
       check("registry", "passed", "Supported mint and live state verified"),
       check("multiplier-window", "blocked", "Inside the inclusive ±15-minute activation window"),
-      pythCheck(),
-    ]);
+      pythCheck(pyth),
+    ], pyth);
+  }
+  if (input.referenceProtection?.required && pyth.reasonCode !== "PYTH_VALID") {
+    return simpleCandidate(position, "rejected", pyth.reasonCode, undefined, [
+      check("registry", "passed", "Supported mint and live state verified"),
+      check("multiplier-window", "passed", "Outside the multiplier activation window"),
+      pythCheck(pyth),
+    ], pyth);
   }
 
   const budget = new QuoteBudget(provider, options.maxQuoteRequestsPerCandidate ?? 5);
@@ -242,14 +255,15 @@ async function evaluateCandidate(
         status: "rejected",
         reasonCode: "RETAINED_FLOOR",
         reason: `The conservative remaining-position quote is below the retained floor.`,
-        reasonCodes: ["RETAINED_FLOOR", "PYTH_NOT_ENABLED"],
+        reasonCodes: ["RETAINED_FLOOR", pyth.reasonCode],
         checks: [
           check("registry", "passed", "Supported mint and live state verified"),
           check("multiplier-window", "passed", "Outside the multiplier activation window"),
           check("slippage", "passed", "Quote is within the selected maximum slippage"),
           check("retained-floor", "blocked", "Conservative remaining value is below the retained floor"),
-          pythCheck(),
+          pythCheck(pyth),
         ],
+        pyth: pyth.evidence,
       };
     }
     return {
@@ -257,22 +271,23 @@ async function evaluateCandidate(
       status: "eligible",
       reasonCode: "ELIGIBLE",
       reason: REASON_COPY.ELIGIBLE,
-      reasonCodes: ["ELIGIBLE", "PYTH_NOT_ENABLED"],
+      reasonCodes: ["ELIGIBLE", pyth.reasonCode],
       checks: [
         check("registry", "passed", "Supported mint and live state verified"),
         check("multiplier-window", "passed", "Outside the multiplier activation window"),
         check("slippage", "passed", "Quote is within the selected maximum slippage"),
         check("retained-floor", "passed", "Conservative remaining value preserves the retained floor"),
-        pythCheck(),
+        pythCheck(pyth),
       ],
+      pyth: pyth.evidence,
     };
   } catch (error) {
     if (error instanceof QuoteBudgetExceeded) {
-      return simpleCandidate(position, "unavailable", "QUOTE_SEARCH_EXHAUSTED");
+      return simpleCandidate(position, "unavailable", "QUOTE_SEARCH_EXHAUSTED", undefined, undefined, pyth);
     }
     const message = error instanceof Error ? error.message : "Unknown Jupiter quote failure";
     const noRoute = /no route|no quote|404/i.test(message);
-    return simpleCandidate(position, "unavailable", noRoute ? "NO_JUPITER_ROUTE" : "QUOTE_SEARCH_EXHAUSTED");
+    return simpleCandidate(position, "unavailable", noRoute ? "NO_JUPITER_ROUTE" : "QUOTE_SEARCH_EXHAUSTED", undefined, undefined, pyth);
   }
 }
 
@@ -425,7 +440,8 @@ function simpleCandidate(
   status: CandidateStatus,
   reasonCode: ReasonCode,
   detail?: string,
-  checks: readonly PolicyCheck[] = [pythCheck()],
+  checks?: readonly PolicyCheck[],
+  pyth: CandidatePythState = NOT_ENABLED_PYTH,
 ): CandidateDecision {
   return {
     symbol: position.symbol,
@@ -433,7 +449,7 @@ function simpleCandidate(
     status,
     reasonCode,
     reason: detail ? `${REASON_COPY[reasonCode]} ${detail}` : REASON_COPY[reasonCode],
-    reasonCodes: uniqueReasons([reasonCode, "PYTH_NOT_ENABLED"]),
+    reasonCodes: uniqueReasons([reasonCode, pyth.reasonCode]),
     ...(position.state === "verified" ? {
       rawBalance: position.rawBalance,
       displayedBalance: position.displayedBalance,
@@ -448,7 +464,8 @@ function simpleCandidate(
         activationWindowBlocked: position.scaledUi.activationWindowBlocked,
       },
     } : {}),
-    checks,
+    checks: checks ?? [pythCheck(pyth)],
+    pyth: pyth.evidence,
   };
 }
 
@@ -461,7 +478,7 @@ function quotedRejection(
   extra: Partial<CandidateDecision> = {},
 ): CandidateDecision {
   return {
-    ...simpleCandidate(position, "rejected", reasonCode),
+    ...simpleCandidate(position, "rejected", reasonCode, undefined, undefined, candidatePythState(input, position.symbol)),
     retainedFloor: input.retainedFloors[position.symbol],
     quote: evidence.quote,
     expiresAt: new Date(Number(evidence.expiresAtMs)).toISOString(),
@@ -474,8 +491,36 @@ function check(code: string, status: PolicyCheck["status"], label: string): Poli
   return { code, status, label };
 }
 
-function pythCheck(): PolicyCheck {
-  return check("pyth-reference", "not-enabled", REASON_COPY.PYTH_NOT_ENABLED);
+type CandidatePythState = Readonly<{ reasonCode: ReasonCode; message: string; evidence?: PythPolicyEvidence }>;
+const NOT_ENABLED_PYTH: CandidatePythState = { reasonCode: "PYTH_NOT_ENABLED", message: REASON_COPY.PYTH_NOT_ENABLED };
+
+function candidatePythState(input: PolicyInputs, symbol: XStockSymbol): CandidatePythState {
+  const policy = input.referenceProtection;
+  if (!policy?.required) return NOT_ENABLED_PYTH;
+  if (policy.serviceStatus !== "available") {
+    const reasonCode: ReasonCode = policy.serviceStatus === "not_entitled"
+      ? "PYTH_NOT_ENTITLED"
+      : policy.serviceStatus === "unit_unverified" ? "PYTH_UNIT_UNVERIFIED" : "PYTH_UNAVAILABLE";
+    return { reasonCode, message: policy.serviceMessage };
+  }
+  const evidence = policy.evaluations[symbol];
+  return evidence
+    ? { reasonCode: evidence.reasonCode, message: evidence.message, evidence }
+    : { reasonCode: "PYTH_FEED_MISSING", message: REASON_COPY.PYTH_FEED_MISSING };
+}
+
+function decisionPythState(input: PolicyInputs): DrawdownDecision["pyth"] {
+  const policy = input.referenceProtection;
+  if (!policy?.required) return { status: "not-enabled", reasonCode: "PYTH_NOT_ENABLED", message: REASON_COPY.PYTH_NOT_ENABLED, service: policy?.serviceStatus ?? "disabled" };
+  if (policy.serviceStatus !== "available") {
+    const state = candidatePythState(input, "AAPLx");
+    return { status: "blocked", reasonCode: state.reasonCode, message: state.message, service: policy.serviceStatus };
+  }
+  return { status: "available", reasonCode: "PYTH_VALID", message: "Reference protection is required for every candidate.", service: "available" };
+}
+
+function pythCheck(pyth: CandidatePythState): PolicyCheck {
+  return check("pyth-reference", pyth.reasonCode === "PYTH_NOT_ENABLED" ? "not-enabled" : pyth.reasonCode === "PYTH_VALID" ? "passed" : "blocked", pyth.message);
 }
 
 function uniqueReasons(codes: readonly ReasonCode[]): ReasonCode[] {

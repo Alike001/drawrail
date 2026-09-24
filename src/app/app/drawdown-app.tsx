@@ -19,6 +19,8 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
   const [target, setTarget] = useState("80");
   const [floors, setFloors] = useState<Floors>(EMPTY_FLOORS);
   const [slippage, setSlippage] = useState("0.5");
+  const [referenceProtection, setReferenceProtection] = useState(false);
+  const [divergenceLimit, setDivergenceLimit] = useState("1");
   const [busy, setBusy] = useState<"portfolio" | "decision" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,7 +69,10 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
           targetUsdc: target,
           retainedFloors: floors,
           maxSlippageBps: percentToBasisPoints(slippage),
-          referenceProtection: "not-enabled",
+          referenceProtection: {
+            required: referenceProtection,
+            maxDivergenceBps: percentToBasisPoints(divergenceLimit),
+          },
         }),
       });
       const body = await response.json() as DecisionDto | { error: string };
@@ -140,6 +145,10 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
             setFloors={setFloors}
             slippage={slippage}
             setSlippage={setSlippage}
+            referenceProtection={referenceProtection}
+            setReferenceProtection={setReferenceProtection}
+            divergenceLimit={divergenceLimit}
+            setDivergenceLimit={setDivergenceLimit}
             existing={existing}
             missing={missing}
             busy={busy === "decision"}
@@ -222,6 +231,8 @@ function PositionCard({ position }: { position: PortfolioDto["positions"][number
 function RequestScreen(props: {
   portfolio: PortfolioDto; target: string; setTarget: (value: string) => void;
   floors: Floors; setFloors: (value: Floors) => void; slippage: string; setSlippage: (value: string) => void;
+  referenceProtection: boolean; setReferenceProtection: (value: boolean) => void;
+  divergenceLimit: string; setDivergenceLimit: (value: string) => void;
   existing: string; missing: string; busy: boolean; onSubmit: (event: FormEvent) => void; onBack: () => void;
 }) {
   return (
@@ -242,11 +253,34 @@ function RequestScreen(props: {
             <label className="floor-row slippage-row"><span>Maximum slippage<small>System maximum: 1%</small></span><div><input inputMode="decimal" min="0" max="1" step="0.01" value={props.slippage} onChange={(event) => props.setSlippage(event.target.value)} required /><i>%</i></div></label>
           </div>
         </div>
-        <div className="pyth-disabled"><div><span className="status-icon neutral">○</span><div><b>Pyth reference protection</b><p>Not enabled yet. No reference-price, market-session, confidence, or publisher check will be claimed.</p></div></div><span className="state-pill neutral">Not enabled</span></div>
+        <ReferenceProtectionControl {...props} />
         <div className="form-footer"><p>DrawRail will re-read the portfolio and use live Jupiter ExactIn quotes. No signature or transaction will be requested.</p><button className="button" disabled={props.busy}>{props.busy ? "Evaluating balances → multipliers → quotes…" : "Evaluate portfolio"}</button></div>
       </form>
     </section>
   );
+}
+
+function ReferenceProtectionControl(props: {
+  portfolio: PortfolioDto;
+  referenceProtection: boolean;
+  setReferenceProtection: (value: boolean) => void;
+  divergenceLimit: string;
+  setDivergenceLimit: (value: string) => void;
+}) {
+  const available = props.portfolio.pyth.service === "available";
+  return <div className={`pyth-control ${available ? "available" : "unavailable"}`}>
+    <div>
+      <span className={`status-icon ${available ? "selected" : "neutral"}`}>{available ? "✓" : "○"}</span>
+      <div>
+        <b>Protect against abnormal stock/token price gaps</b>
+        <p>{available ? "Blocks the drawdown when the tokenized stock is too far from a fresh underlying-stock reference." : props.portfolio.pyth.message}</p>
+      </div>
+    </div>
+    {available ? <div className="pyth-policy-inputs">
+      <label className="protection-toggle"><input type="checkbox" checked={props.referenceProtection} onChange={(event) => props.setReferenceProtection(event.target.checked)} /> <span>Reference protection</span></label>
+      {props.referenceProtection && <label>Maximum gap <span className="inline-percent"><input inputMode="decimal" min="0" max="10" step="0.01" value={props.divergenceLimit} onChange={(event) => props.setDivergenceLimit(event.target.value)} required /><i>%</i></span></label>}
+    </div> : <span className="state-pill neutral">{pythStatusLabel(props.portfolio.pyth.service)}</span>}
+  </div>;
 }
 
 function DecisionScreen({ decision, onBack, onRefresh, onReview, busy }: {
@@ -263,6 +297,7 @@ function DecisionScreen({ decision, onBack, onRefresh, onReview, busy }: {
         <i>−</i><div><span>Existing USDC</span><strong>${usdc(decision.existingUsdc)}</strong></div>
         <i>=</i><div className="summary-emphasis"><span>Additional liquidity</span><strong>${usdc(decision.missingUsdc)}</strong></div>
       </div>
+      <div className={`reference-result ${decision.pyth.status}`}><b>Reference protection</b><span>{decision.pyth.message}</span></div>
       {decision.selected && <SelectedDecision candidate={decision.selected} />}
       <div className="alternatives"><div className="section-row"><div><p className="eyebrow">Every supported position</p><h2>Why each candidate landed here</h2></div><span>Deterministic V1 rule</span></div>{decision.candidates.map((candidate) => <CandidateRow key={candidate.symbol} candidate={candidate} />)}</div>
       <div className="decision-actions">
@@ -285,6 +320,7 @@ function SelectedDecision({ candidate }: { candidate: CandidateDto }) {
         <div><span>Remaining exposure</span><strong>${usdc(candidate.retainedExecutableValue)}</strong></div>
       </div>
       <p className="selection-reason">{candidate.reason}</p>
+      {candidate.pyth && <ReferenceEvidence candidate={candidate} />}
       <div className="check-grid">{candidate.checks.map((item) => <div key={item.code} className={`check ${item.status}`}><span>{item.status === "passed" ? "✓" : item.status === "blocked" ? "×" : "○"}</span>{item.label}</div>)}</div>
       <CandidateInspect candidate={candidate} />
     </article>
@@ -296,11 +332,20 @@ function CandidateRow({ candidate }: { candidate: CandidateDto }) {
   return (
     <article className={`candidate-row ${candidate.status}`}>
       <div className="candidate-identity"><span className="asset-monogram">{candidate.symbol[0]}</span><div><h3>{candidate.symbol}</h3><span className={`candidate-label ${candidate.status}`}>{label}</span></div></div>
-      <div className="candidate-reason"><b>{candidate.reasonCode.replaceAll("_", " ")}</b><p>{candidate.reason}</p>{candidate.reasonCode === "RETAINED_FLOOR" && <small>Would leave approximately ${usdc(candidate.retainedExecutableValue)} against a ${usdc(candidate.retainedFloor)} floor.</small>}</div>
+      <div className="candidate-reason"><b>{candidate.reasonCode.replaceAll("_", " ")}</b><p>{candidate.reason}</p>{candidate.reasonCode === "RETAINED_FLOOR" && <small>Would leave approximately ${usdc(candidate.retainedExecutableValue)} against a ${usdc(candidate.retainedFloor)} floor.</small>}{candidate.pyth && <ReferenceEvidence candidate={candidate} />}</div>
       {candidate.minimumUsdc && <div className="candidate-output"><span>Minimum output</span><b>${usdc(candidate.minimumUsdc)}</b></div>}
       {candidate.quote && <CandidateInspect candidate={candidate} />}
     </article>
   );
+}
+
+function ReferenceEvidence({ candidate }: { candidate: CandidateDto }) {
+  const evidence = candidate.pyth!;
+  return <div className={`reference-evidence ${evidence.status}`}>
+    <b>{evidence.status === "valid" ? "PASS" : "BLOCKED"}</b>
+    <span>{evidence.status === "valid" ? `Fresh ${stockName(candidate.symbol)} reference` : evidence.message}</span>
+    {evidence.divergenceBps && <small>{candidate.symbol} is {bpsToPercent(evidence.divergenceBps)}% from reference · Limit {bpsToPercent(evidence.thresholdBps)}%</small>}
+  </div>;
 }
 
 function CandidateInspect({ candidate }: { candidate: CandidateDto }) {
@@ -321,6 +366,13 @@ function CandidateInspect({ candidate }: { candidate: CandidateDto }) {
     <InspectRow label="Request ID" value={quote?.requestId ?? "not returned"} />
     <InspectRow label="Decision expiry" value={candidate.expiresAt ?? "—"} />
     {Object.entries(candidate.inspect ?? {}).map(([key, value]) => <InspectRow key={key} label={key} value={String(value)} />)}
+    {candidate.pyth && <>
+      <InspectRow label="Pyth policy result" value={`${candidate.pyth.reasonCode}: ${candidate.pyth.message}`} />
+      <InspectRow label="Divergence" value={candidate.pyth.divergenceBps ? `${candidate.pyth.divergenceBps} bps` : "not calculated"} />
+      <InspectRow label="Divergence threshold" value={`${candidate.pyth.thresholdBps} bps`} />
+      <InspectRow label="Representation feed" value={candidate.pyth.representation ? JSON.stringify(candidate.pyth.representation) : "unavailable"} />
+      <InspectRow label="Equity reference feed" value={candidate.pyth.reference ? JSON.stringify(candidate.pyth.reference) : "unavailable"} />
+    </>}
   </div></details>;
 }
 
@@ -340,7 +392,7 @@ function ReviewScreen({ decision, onBack }: { decision: DecisionDto; onBack: () 
         <div><span>Retained floor</span><b>${usdc(selected.retainedFloor)}</b></div>
         <div><span>Quote expires</span><b>{decision.expiresAt ? new Date(decision.expiresAt).toLocaleTimeString() : "Unavailable"}</b></div>
         <div><span>Jupiter fee</span><b>{selected.quote?.feeBps ? `${selected.quote.feeBps} bps` : "Not returned"}</b></div>
-        <div><span>Reference protection</span><b>Not applied</b></div>
+        <div><span>Reference protection</span><b>{decision.pyth.status === "available" ? "Applied" : decision.pyth.status === "blocked" ? "Blocked" : "Not applied"}</b></div>
       </div>
       <div className="alert milestone-boundary"><b>Signing is intentionally unavailable</b><span>Milestone 2 stops at a live, explainable, read-only review. No transaction was built, signed, broadcast, or sent to Jupiter /execute.</span></div>
       <CandidateInspect candidate={selected} />
@@ -371,4 +423,29 @@ function percentToBasisPoints(value: string): string {
 
 function shorten(value: string) {
   return value.length <= 12 ? value : `${value.slice(0, 5)}…${value.slice(-5)}`;
+}
+
+function pythStatusLabel(status: PortfolioDto["pyth"]["service"]) {
+  return ({
+    disabled: "Disabled",
+    available: "Available",
+    unavailable: "Unavailable",
+    not_entitled: "Not entitled",
+    unhealthy: "Unhealthy",
+    unit_unverified: "Units unverified",
+  } as const)[status];
+}
+
+function stockName(symbol: CandidateDto["symbol"]) {
+  return ({ AAPLx: "Apple", NVDAx: "Nvidia", TSLAx: "Tesla" } as const)[symbol];
+}
+
+function bpsToPercent(value: string) {
+  const decimal = value.includes(".") ? value : `${value}.0`;
+  const [whole, fraction = ""] = decimal.split(".");
+  const digits = `${whole}${fraction}`.replace(/^0+(?=\d)/, "");
+  const scale = fraction.length + 2;
+  const padded = digits.padStart(scale + 1, "0");
+  const split = padded.length - scale;
+  return `${padded.slice(0, split)}.${padded.slice(split).replace(/0+$/, "") || "00"}`;
 }

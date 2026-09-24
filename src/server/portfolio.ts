@@ -9,6 +9,7 @@ import {
   readChainTime,
   SolanaRpcClient,
 } from "./rpc";
+import type { PythFeatureStatus } from "./pyth/service";
 
 export async function readDecisionPortfolio(
   rpc: SolanaRpcClient,
@@ -83,7 +84,7 @@ export async function readDecisionPortfolio(
   };
 }
 
-export function serializePortfolio(snapshot: PortfolioSnapshot) {
+export function serializePortfolio(snapshot: PortfolioSnapshot, pyth: PythFeatureStatus) {
   return {
     wallet: snapshot.wallet,
     generatedAt: snapshot.generatedAt,
@@ -92,7 +93,7 @@ export function serializePortfolio(snapshot: PortfolioSnapshot) {
     readOnly: true,
     chainSlot: snapshot.chainSlot,
     chainTime: snapshot.chainTime.toString(),
-    pyth: { service: "unavailable", referenceProtection: "not-enabled" },
+    pyth,
     usdc: {
       ...snapshot.usdc,
       rawBalance: snapshot.usdc.rawBalance.toString(),
