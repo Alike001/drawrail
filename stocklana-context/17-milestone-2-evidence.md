@@ -56,7 +56,7 @@ The static landing page contains only:
 - a clearly labeled illustrative `80 - 20 = 60 USDC` example;
 - the NVDAx retained-floor rejection and AAPLx eligibility example;
 - three steps;
-- the manual-swap versus Stocklana distinction;
+- the manual-swap versus DrawRail distinction;
 - one connected Solana / Token-2022 / xStocks / Jupiter / optional-Pyth explanation;
 - a self-custody and safety statement; and
 - one closing Launch App action.
@@ -168,9 +168,9 @@ This is live evidence that the floor is enforced from the executable quote for t
 ## Jupiter behavior observed
 
 - Quote-only `/swap/v2/order` without a taker continued to return current xStock → USDC pricing with `transaction: null`; no final order was requested.
-- Jupiter returned non-zero platform fee data: `feeBps: 10`, USDC as `feeMint`, and matching `platformFee` fields. Stocklana recorded the response rather than hard-coding it.
+- Jupiter returned non-zero platform fee data: `feeBps: 10`, USDC as `feeMint`, and matching `platformFee` fields. DrawRail recorded the response rather than hard-coding it.
 - The selected quote was routed by OKX while the retained-position quote was routed by Metis. The decision preserves each quote separately.
-- Jupiter returned `expireAt: null`. Stocklana therefore applied a conservative local 30-second decision lifetime and required refresh after expiry.
+- Jupiter returned `expireAt: null`. DrawRail therefore applied a conservative local 30-second decision lifetime and required refresh after expiry.
 - An initial 18-call binary-refinement implementation hit HTTP 429 on the unauthenticated endpoint. The final bounded strategy needs three live calls in the observed case and caps each candidate at five, while still requiring a separately quoted proposed raw input and exact remainder. Reliable deployment still requires a Jupiter API key.
 
 ## Tests and verification

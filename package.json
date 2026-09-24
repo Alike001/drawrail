@@ -1,5 +1,5 @@
 {
-  "name": "stocklana",
+  "name": "drawrail",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -15,8 +15,8 @@
     "validate:mainnet": "tsx scripts/validate-mainnet.ts"
   },
   "dependencies": {
-    "@solana/kit": "8.3.0",
     "@solana-program/token-2022": "0.19.0",
+    "@solana/kit": "8.3.0",
     "decimal.js": "10.6.0",
     "next": "16.3.6",
     "react": "19.3.0",
@@ -32,6 +32,13 @@
     "eslint-config-next": "16.3.6",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
-    "vitest": "4.0.8"
-  }
+    "vitest": "^4.1.11"
+  },
+  "description": "Policy-preserving liquidity for tokenized-stock portfolios on Solana.",
+  "homepage": "https://github.com/Alike001/drawrail",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alike001/drawrail.git"
+  },
+  "type": "module"
 }

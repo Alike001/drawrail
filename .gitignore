@@ -1,18 +1,30 @@
 node_modules/
 .next/
 coverage/
+dist/
+.turbo/
+.cache/
 
-.env*
+.env
+.env.*
 !.env.example
 
 *.keypair.json
+keypairs/
+.keys/
 *.secret
 *.secrets
 *.pem
+*.key
 id.json
 
 validation-artifacts/
 stocklana-mainnet-report-*.json
+drawrail-mainnet-report-*.json
+
+# Research references live outside this repository and must never be vendored.
+stocklana-reference-repos/
+drawrail-reference-repos/
 
 *.tsbuildinfo
 .DS_Store

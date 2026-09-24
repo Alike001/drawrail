@@ -1,4 +1,4 @@
-# Build Spec — Stocklana MVP
+# Build Spec — DrawRail MVP
 
 Date: 23 September 2026
 
@@ -10,7 +10,7 @@ Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
 Build the smallest self-custodial web application that can turn a user's USDC liquidity target into one policy-compliant, multiplier-correct, reviewable, user-signed xStock → USDC transaction on Solana mainnet, then prove settlement.
 
-The MVP succeeds through a real financial action. It does not require or claim autonomous enforcement outside the transaction path Stocklana constructs.
+The MVP succeeds through a real financial action. It does not require or claim autonomous enforcement outside the transaction path DrawRail constructs.
 
 ## 2. Exact MVP scope
 
@@ -39,7 +39,7 @@ For V1, “retain at least X USD of an xStock” means:
 
 > After the proposed sale, the remaining raw position must have a current conservative executable value of at least X USDC under a quote-only Jupiter V2 ExactIn order using the user's slippage limit.
 
-The conservative value is the remaining-position quote's reviewed minimum output (`otherAmountThreshold`). Stocklana configures no integrator or referral fee in V1, but that does **not** make the route fee-free: Jupiter may return `feeBps`, `feeMint`, and `platformFee`, and those actual response fields must be retained and shown. This is deliberately stricter and more reproducible than a decorative spot-price mark. If the remaining position cannot receive a current quote, Stocklana cannot prove the floor and blocks that candidate. A zero floor does not require a quote for a zero remaining balance.
+The conservative value is the remaining-position quote's reviewed minimum output (`otherAmountThreshold`). DrawRail configures no integrator or referral fee in V1, but that does **not** make the route fee-free: Jupiter may return `feeBps`, `feeMint`, and `platformFee`, and those actual response fields must be retained and shown. This is deliberately stricter and more reproducible than a decorative spot-price mark. If the remaining position cannot receive a current quote, DrawRail cannot prove the floor and blocks that candidate. A zero floor does not require a quote for a zero remaining balance.
 
 Jupiter Price V3 may be used for fast portfolio overview marks and initial quote sizing. It is not the sole authority for the retained-exposure safety decision.
 
@@ -70,7 +70,7 @@ Browser
   wallet connection + policy form + review + explicit signature
          │ read requests / unsigned tx / signed tx
          ▼
-Stocklana server
+DrawRail server
   asset registry ─ portfolio snapshot ─ policy engine ─ decision receipt
          │                 │                  │
          │                 │                  ├── Pyth Pro (gated)
@@ -85,15 +85,15 @@ Jupiter /execute ──► Solana mainnet ──► RPC confirmation and balance
 | Component | Responsibility | Must not do |
 |---|---|---|
 | Browser | Connect wallet, collect policies, display decisions, request wallet signature, render settlement evidence | Hold service API secrets, calculate authoritative raw amounts, alter the returned transaction |
-| Stocklana server | Read and normalize current state, evaluate policy, call Pyth/Jupiter, bind the decision to the transaction, relay the signed transaction, verify settlement | Hold a user's private key, sign for the user, claim control of transactions created elsewhere |
-| Wallet | Display/approve and add the user signature to the exact transaction message through `signTransaction` | Broadcast independently, mutate the message, or delegate signing to Stocklana |
-| Jupiter V2 | Quote, construct the ExactIn swap, compete routes, execute/land the signed transaction | Decide Stocklana's portfolio policy |
+| DrawRail server | Read and normalize current state, evaluate policy, call Pyth/Jupiter, bind the decision to the transaction, relay the signed transaction, verify settlement | Hold a user's private key, sign for the user, claim control of transactions created elsewhere |
+| Wallet | Display/approve and add the user signature to the exact transaction message through `signTransaction` | Broadcast independently, mutate the message, or delegate signing to DrawRail |
+| Jupiter V2 | Quote, construct the ExactIn swap, compete routes, execute/land the signed transaction | Decide DrawRail's portfolio policy |
 | Solana RPC | Supply mint/account state and transaction evidence | Supply off-chain reference-price policy |
 | Pyth Pro | Optionally supply paired representation/reference observations | Be treated as available without authenticated evidence |
 
 ### Why no custom Solana program
 
-The required invariant is: **Stocklana must not offer or relay a transaction that fails its current policy checks, and the user must sign the exact reviewed action.** A server-side decision receipt, exact transaction-message binding, last-moment state checks, and wallet signature can enforce that invariant within Stocklana's controlled path.
+The required invariant is: **DrawRail must not offer or relay a transaction that fails its current policy checks, and the user must sign the exact reviewed action.** A server-side decision receipt, exact transaction-message binding, last-moment state checks, and wallet signature can enforce that invariant within DrawRail's controlled path.
 
 Existing programs already enforce ownership and token movement: the wallet authorizes the transaction, Token-2022 controls the asset, and Jupiter invokes existing liquidity programs. A new program would not stop the user from trading through another application. It would add deployment, audit, oracle, compute, and upgrade-authority risk without providing a required V1 guarantee. A program should be reconsidered only if a later requirement demands protocol-wide or delegated enforcement that cannot be bypassed outside the app.
 
@@ -151,7 +151,7 @@ The transaction always receives `RawTokenAmount`. The shortcut `displayedAmount 
 
 The mathematical model alone is not treated as proof of parity with Token-2022. Solana's official Scaled UI conversion path uses floating-point multiplier semantics and documents that UI/raw conversions may not round-trip exactly. Milestone 1 must compare the high-precision implementation against the official Token-2022 helper or pinned reference implementation, including boundary values.
 
-For a desired displayed reduction, Stocklana must:
+For a desired displayed reduction, DrawRail must:
 
 1. calculate a conservative raw candidate with authoritative integer/fixed-precision application arithmetic;
 2. convert that raw candidate back to a displayed amount through the official Token-2022 conversion behavior;
@@ -313,7 +313,7 @@ Use the current authenticated Jupiter Swap V2 API at `https://api.jup.ag`:
 
 Use ExactIn only. The input `amount` is the exact raw xStock integer. The output mint is always the allowlisted USDC mint. Set the user's validated `slippageBps`. Do not set a separate receiver, payer, integrator fee, or referral account in V1.
 
-`outAmount` is the expected pre-slippage output. `otherAmountThreshold` is the reviewed minimum output after slippage and is the amount used to determine whether a proposal can cover the missing USDC. The decision model records `feeBps`, `feeMint`, and `platformFee` exactly as Jupiter returns them. These may represent Jupiter fees even when Stocklana configures no referral or integrator fee; no fee rate is hard-coded and missing fields are not rewritten as zero.
+`outAmount` is the expected pre-slippage output. `otherAmountThreshold` is the reviewed minimum output after slippage and is the amount used to determine whether a proposal can cover the missing USDC. The decision model records `feeBps`, `feeMint`, and `platformFee` exactly as Jupiter returns them. These may represent Jupiter fees even when DrawRail configures no referral or integrator fee; no fee rate is hard-coded and missing fields are not rewritten as zero.
 
 Settlement authority is the wallet-level change observed through Solana RPC. Jupiter `/execute` fields `totalInputAmount`, `inputAmountResult`, `outputAmountResult`, and `totalOutputAmount` are recorded and reconciled with the RPC-observed changes; they do not replace them.
 
@@ -333,9 +333,9 @@ This distinction does not affect the selected architecture: `/order` is the smal
 - Decode the returned transaction server-side and verify its network, fee payer/taker relationship, allowlisted input/output mints, raw input, and absence of an unexpected recipient or authority.
 - Hash the canonical transaction message and bind it to the policy decision.
 - The browser wallet uses `signTransaction` to add the user's signature and must not call wallet `sendTransaction` or independently broadcast the transaction.
-- The browser returns the user-signed transaction to Stocklana's server.
+- The browser returns the user-signed transaction to DrawRail's server.
 - Before `/execute`, the server verifies the signed transaction has the same canonical message bytes/hash, then sends it with the original `requestId`.
-- The user signature must be added without mutating the transaction message. Stocklana does not require the locally signed transaction to already contain every signature a JupiterZ route needs; Jupiter may add the market-maker signature during `/execute`.
+- The user signature must be added without mutating the transaction message. DrawRail does not require the locally signed transaction to already contain every signature a JupiterZ route needs; Jupiter may add the market-maker signature during `/execute`.
 - Never append instructions to a JupiterZ transaction or submit a modified `/order` transaction.
 
 ## 11. Decision binding and API boundaries
@@ -675,7 +675,7 @@ The user must manually obtain:
 ## 21. Security boundaries
 
 - **Self-custody:** only the wallet can authorize the sale.
-- **Controlled-path policy:** Stocklana can refuse its own construction/relay path; it cannot stop trades made elsewhere.
+- **Controlled-path policy:** DrawRail can refuse its own construction/relay path; it cannot stop trades made elsewhere.
 - **Server-only secrets:** Jupiter, Pyth, RPC, and HMAC secrets never ship in the browser bundle or logs.
 - **Closed asset set:** verify static allowlist and live mint/program metadata.
 - **Fail-closed parsing:** unknown extensions, response fields, session values, instructions, destinations, or price units block the affected action.

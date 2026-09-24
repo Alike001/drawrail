@@ -1,4 +1,4 @@
-# UX Product Plan — Stocklana Drawdown
+# UX Product Plan — DrawRail Drawdown
 
 Date: 23 September 2026
 
@@ -6,7 +6,7 @@ Status: approved product-surface plan for Milestone 2 onward; no visual or appli
 
 ## Product promise
 
-Stocklana answers:
+DrawRail answers:
 
 > I need liquidity from my stock portfolio. Which position can I safely reduce without breaking the investment rules I already chose?
 
@@ -41,7 +41,7 @@ Primary job:
 - **No false certainty:** unavailable data, expired quotes, unknown confirmation, and partial service failures are explicit states.
 - **No silent downgrade:** requested Pyth reference protection either passes or blocks; turning it off requires a new explicit evaluation.
 - **No fake financial proof:** devnet synthetic assets are labeled; mainnet execution success requires RPC-observed balance changes.
-- **Self-custody stays visible:** Stocklana proposes and relays; only the connected wallet signs.
+- **Self-custody stays visible:** DrawRail proposes and relays; only the connected wallet signs.
 
 ## Information architecture
 
@@ -63,7 +63,7 @@ The routes may be implemented as URL-backed steps within one Next.js application
 
 The MVP product shell has only:
 
-- Stocklana wordmark/home;
+- DrawRail wordmark/home;
 - current network/environment badge;
 - Portfolio;
 - Receipts, once at least one local receipt exists; and
@@ -80,7 +80,7 @@ The landing page is one focused explanation, not an alternate product dashboard.
 Required content:
 
 - headline: “Turn tokenized-stock exposure into USDC without breaking the portfolio rules you already chose.”
-- supporting line: “Tell Stocklana how much USDC you need. It counts the USDC you already hold, checks AAPLx, NVDAx, and TSLAx against your rules, and proposes one reviewable sale for you to sign.”
+- supporting line: “Tell DrawRail how much USDC you need. It counts the USDC you already hold, checks AAPLx, NVDAx, and TSLAx against your rules, and proposes one reviewable sale for you to sign.”
 - primary CTA: `Launch App` → `/app`;
 - concise trust line: `Self-custodial · You review and sign · No autonomous trading`.
 
@@ -91,7 +91,7 @@ The hero must not contain token price charts, a trading form, an AI motif, fake 
 Show a single causal strip/card:
 
 ```text
-Need                         Already have                  Stocklana finds
+Need                         Already have                  DrawRail finds
 $80 USDC          −          $20 USDC          =           $60 from one eligible position
 ```
 
@@ -115,9 +115,9 @@ Label it `Illustrative example`; never imply the app always selects AAPLx.
 One short comparison, preferably two columns or one sentence pair:
 
 - A swap asks: `Which token do you want to sell?`
-- Stocklana asks: `How much USDC do you need, and which exposure must be preserved?`
+- DrawRail asks: `How much USDC do you need, and which exposure must be preserved?`
 
-Supporting sentence: “Jupiter executes the route. Stocklana determines whether a proposed portfolio reduction obeys the rules you chose and explains the result before signing.”
+Supporting sentence: “Jupiter executes the route. DrawRail determines whether a proposed portfolio reduction obeys the rules you chose and explains the result before signing.”
 
 ### 5. Why Solana and these integrations
 
@@ -133,7 +133,7 @@ The chain is essential because the portfolio state, multiplier state, transactio
 
 Required copy concepts:
 
-- Stocklana never stores a private key.
+- DrawRail never stores a private key.
 - The wallet signs the reviewed transaction; the browser does not independently broadcast it.
 - A multiplier activation-window violation blocks execution.
 - A requested Pyth reference check never silently falls back.
@@ -253,7 +253,7 @@ Reference-protection states:
 
 ## Screen 3 — Decision
 
-This is Stocklana's most important surface.
+This is DrawRail's most important surface.
 
 ### Comprehension test
 
@@ -371,11 +371,11 @@ Consent to the exact wallet action after seeing its consequences.
 - Jupiter fee fields exactly as returned, including a clear `not returned` state;
 - reference protection status;
 - quote expiry/countdown;
-- one-line self-custody statement: `Your wallet signs this exact transaction. Stocklana cannot sign for you.`
+- one-line self-custody statement: `Your wallet signs this exact transaction. DrawRail cannot sign for you.`
 
 ### Message binding statement
 
-`If the wallet, quote, amount, route, blockhash/message, or policy inputs change, this review expires and Stocklana will ask you to review again.`
+`If the wallet, quote, amount, route, blockhash/message, or policy inputs change, this review expires and DrawRail will ask you to review again.`
 
 ### Inspect disclosure
 
@@ -402,7 +402,7 @@ Canonical message hash/bytes identifier, v0 transaction version, accounts/progra
 ### State sequence
 
 1. `Waiting for wallet` — the app has requested `signTransaction`.
-2. `Signature received` — user signature returned; Stocklana is verifying the message was not mutated.
+2. `Signature received` — user signature returned; DrawRail is verifying the message was not mutated.
 3. `Sending through Jupiter` — server submits the user-signed transaction plus original `requestId` to `/execute`; the browser does not broadcast.
 4. `Submitted` — signature known; link can appear, but this is not settlement success.
 5. `Confirming` — poll Jupiter/RPC and balances.
@@ -630,7 +630,7 @@ Never log wallet private data, exact balances, exact transaction message bytes, 
 | No fake financial actions | Devnet synthetic label; mainnet success only after reconciliation |
 | No bounty stacking | Integrations appear only where they enforce or execute the core flow |
 | No trading terminal | No market navigation/charts/order book; technical details live under Inspect |
-| No generic firewall | All checks are scoped to this Stocklana-constructed xStock drawdown |
+| No generic firewall | All checks are scoped to this DrawRail-constructed xStock drawdown |
 
 ## Explicit UX non-goals
 

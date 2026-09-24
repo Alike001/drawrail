@@ -6,10 +6,12 @@ import { EnvironmentBadge } from "./components/environment-badge";
 describe("public product explanation", () => {
   it("explains the product and labels marketing data as illustrative without a wallet", () => {
     const html = renderToStaticMarkup(<LandingPage />);
-    expect(html).toContain("Turn tokenized-stock exposure into USDC");
+    expect(html).toContain("Need liquidity? Keep your portfolio rules.");
+    expect(html).toContain("DrawRail turns tokenized-stock exposure into USDC");
     expect(html).toContain("Illustrative example");
     expect(html).toContain('data-kind="illustrative"');
     expect(html).toContain('href="/app"');
+    expect(html).toContain("Launch DrawRail");
     expect(html).not.toContain("Connect wallet");
   });
 

@@ -2,13 +2,13 @@
 
 Date: 23 September 2026
 
-Status: final pre-Milestone-2 product/UX research; the Stocklana product direction remains locked
+Status: final pre-Milestone-2 product/UX research; the DrawRail product direction remains locked
 
 ## Research boundary and evidence standard
 
-This pass asks only how existing products communicate, structure, and prove a financial action. It does not reopen Stocklana's product choice.
+This pass asks only how existing products communicate, structure, and prove a financial action. It does not reopen DrawRail's product choice.
 
-Eight repositories were cloned with `--depth 1` into the sibling directory `../stocklana-reference-repos/`. No code, branding, proprietary assets, or design assets were copied into Stocklana.
+Eight repositories were cloned with `--depth 1` into the sibling directory `../stocklana-reference-repos/`. No code, branding, proprietary assets, or design assets were copied into DrawRail.
 
 | Repository | Inspected commit | Clone result |
 |---|---|---|
@@ -30,7 +30,7 @@ Evidence labels used below:
 
 ## Executive conclusion
 
-No inspected product implements Stocklana's exact workflow:
+No inspected product implements DrawRail's exact workflow:
 
 > cash need first → existing USDC first → preservation policy second → one multiplier-correct xStock reduction → current execution third → explicit signature → wallet-delta receipt.
 
@@ -80,11 +80,11 @@ An always-visible environment pill distinguishes `Demo Sandbox`, `Solana Devnet`
 
 Local portfolio effects are delayed until RPC confirmation rather than triggered by the wallet returning a signature. The code also treats confirmation timeout as a state to inspect rather than immediate proof of failure.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Amount-first interaction, asset selection after the request, wallet approval, live confirmation, and evidence-oriented receipts.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 Merchant QR/checkout framing, StockBack, rewards, a sandbox ledger mixed into the product path, legacy Jupiter v6 construction, direct client broadcast of the signed transaction, or route fallbacks that silently change settlement behavior.
 
@@ -135,11 +135,11 @@ Normalize around the user's conceptual object (the company) while preserving iss
 
 The router separates quote, guarded build, simulation, wallet signing, and protected submission. Read-only router responses expose why a candidate is unavailable, while executable candidates must survive build/simulation checks.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Closed registry discipline, live quote comparison, Token-2022 awareness, exact integer accounting, wallet-bound authorization, transaction simulation, and honest data availability.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 Cross-issuer routing, a universal stock market/research terminal, DCA, packs, yield products, large catalog, custom protocol, or the information density of a professional terminal.
 
@@ -189,11 +189,11 @@ The hero demonstrates the problem rather than describing a feature list: “wall
 
 The polling service retains snapshots and derives an event ledger instead of showing only the current value.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Multiplier visibility, old/new values, activation timing, and plain-language explanation.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 A standalone multiplier-monitoring product, an off-chain API as transaction authority, corporate-action classification, or JavaScript-number arithmetic for authoritative amounts.
 
@@ -243,11 +243,11 @@ Every section labels provenance and network. Real mainnet reads, daily snapshots
 
 Use synthetic Token-2022 mirrors on devnet to test multiplier-dependent program behavior while clearly naming them as mirrors, and keep real issuer assets/mainnet reads separate.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Pyth session/freshness handling, multiplier state, corporate-action blocks, explicit reason codes, synthetic devnet mirrors, and fail-closed status.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 A lender oracle, keeper, custom program, LP accounting/LVR product, public data board, or dense protocol-facing UI.
 
@@ -297,18 +297,18 @@ A compact structured preview turns an opaque prompt into asset/action/amount/con
 
 Feature availability is surfaced directly: missing Pyth configuration leaves the UI up and explains what is unavailable rather than inventing quotes.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Deterministic decision explanation, Pyth representation/reference framing, wallet approval, Jupiter execution, and explicit no-route errors.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 Natural-language policy parsing, AI, agents, autonomous monitoring, demo-trigger controls in the main action, PreStocks paper trading, DCA, or Meteora launch tooling.
 
 **Implementation reality**
 
 - **Verified in code:** Next.js routes; localStorage strategies/activity; optional local/Gemini parsing; demo trigger; Jupiter Ultra `/order`; wallet `sendTransaction`; an activity row is written as success immediately after submission.
-- **Correctness gaps for Stocklana:** human-to-raw conversion uses `Math.floor(amount * 10 ** decimals)`; the xStock multiplier is not applied; the wallet broadcasts directly; no Jupiter `/execute` boundary or wallet-delta reconciliation is present.
+- **Correctness gaps for DrawRail:** human-to-raw conversion uses `Math.floor(amount * 10 ** decimals)`; the xStock multiplier is not applied; the wallet broadcasts directly; no Jupiter `/execute` boundary or wallet-delta reconciliation is present.
 - **Planned/mock:** PreStocks fills are paper-only; Meteora creation is documented rather than falsely executed.
 
 **Decision: REJECT with one adapted disclosure pattern**
@@ -337,7 +337,7 @@ Narrative landing → live “right now” evidence → dislocation board → ex
 
 **Routes/surfaces and responsiveness**
 
-Next.js separates the public site (`/`, `/explore`, agent pages, waitlist) from wallet-connected `/app` routes and operator surfaces. Tailwind layouts progressively stack, tables scroll, and primary actions become full-width on mobile. The separation of public narrative and connected product directly informs Stocklana's `/` and `/app` boundary.
+Next.js separates the public site (`/`, `/explore`, agent pages, waitlist) from wallet-connected `/app` routes and operator surfaces. Tailwind layouts progressively stack, tables scroll, and primary actions become full-width on mobile. The separation of public narrative and connected product directly informs DrawRail's `/` and `/app` boundary.
 
 **Strongest product idea**
 
@@ -351,11 +351,11 @@ Multi-transaction routes are shown as named steps with active/done/failed states
 
 Server-built transaction → browser `signTransaction` → signed bytes returned to server relay is a clean self-custody boundary. The app also distinguishes signing from sending and invalidates cached reads after confirmed writes.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Server-built/client-signed/server-relayed boundary, Pyth reference/session concepts, evidence-first landing, devnet synthetic assets, and explicit transaction stages.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 Autonomous agents, PreStocks, wrappers, DBC pools, staking, streaming rewards, custom programs, or multi-leg portfolio actions.
 
@@ -405,18 +405,18 @@ The recorded-run timeline visually connects source data, alert, policy result, q
 
 Closed mint admission, multiple independent execution checks, exact raw balance aggregation across token accounts, live quote failure as refusal, and dry-run-first command boundaries.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Deterministic policy results, blocked-reason visibility, quote/fill constraints, Token-2022 multiplier awareness, and evidence ledger.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 Autonomous/local-key execution, x402, spending allowances, PreStocks, discount trading, session agents, old Jupiter v1 endpoints, or “armed” CLI mainnet trading.
 
 **Implementation reality**
 
 - **Verified in code:** policy functions; dry-run/live switch; key loader; exact bigint aggregate balance; parsed Scaled UI state; Jupiter v1 quote/swap; confirmed transaction; recorded static demo output.
-- **Correctness gaps for Stocklana:** Scaled UI calculations and pay-token conversions cross into `number`; missing/malformed Scaled UI extension returns multiplier `1` instead of failing closed; no activation safety-window hard block; autonomous key ownership violates Stocklana's wallet boundary.
+- **Correctness gaps for DrawRail:** Scaled UI calculations and pay-token conversions cross into `number`; missing/malformed Scaled UI extension returns multiplier `1` instead of failing closed; no activation safety-window hard block; autonomous key ownership violates DrawRail's wallet boundary.
 - **Planned/mock:** the public page renders a recorded run; the README's example is explicitly dry-run unless a dangerous flag and funded key are supplied.
 
 **Decision: ADAPT**
@@ -459,18 +459,18 @@ The send confirmation displays expected per-address token changes from simulatio
 
 Simulation result is a typed gate: loading, transport error, program failure, and success are distinct. Tests specifically assert that confirmation is disabled and stale change rows are hidden when the simulation cannot be trusted.
 
-**What overlaps Stocklana**
+**What overlaps DrawRail**
 
 Self-custody, sign-only wallet support, transaction preview, expected balance changes, confirmation gating, receipt/explorer, and localnet/devnet priority.
 
-**What Stocklana must NOT copy/build**
+**What DrawRail must NOT copy/build**
 
 A wallet, key vault, extension, generic transaction debugger, token/NFT toolkit, or generic instruction explorer as the core product.
 
 **Implementation reality**
 
 - **Verified in code/tests:** monorepo with web/extension/background/vault; Wallet Standard `signTransaction`; portfolio send simulation and expected-change rows; confirmation disabled on simulation failure; explorer-backed completion; broad automated tests.
-- **Boundary:** the generic dApp `signTransaction` request UI itself is sparse; the richer preview exists in Samui's internal portfolio-send flow. Stocklana must render its own reviewed decision before invoking any external wallet.
+- **Boundary:** the generic dApp `signTransaction` request UI itself is sparse; the richer preview exists in Samui's internal portfolio-send flow. DrawRail must render its own reviewed decision before invoking any external wallet.
 - **Public evidence:** Colosseum named Samui the 2025 Cypherpunk Public Good Award winner for an open-source ecosystem benefit.
 
 **Decision: TAKE**
@@ -481,13 +481,13 @@ Evidence: `README.md`, `apps/site/src/content/docs/index.mdx`, `apps/site/src/co
 
 ## Non-Solana product patterns
 
-These are conceptual references only. Stocklana will not import their chain model, protocols, or infrastructure.
+These are conceptual references only. DrawRail will not import their chain model, protocols, or infrastructure.
 
 ### CoW Protocol — intent plus enforceable constraints
 
 Current CoW documentation describes an intent as a signed message specifying assets and amounts. The signed order carries a sell amount, minimum buy amount/limit, receiver, validity, fill mode, and other constraints; solvers compete to execute within them.
 
-**Adapt:** separate what the user intends from how a route executes it. Stocklana's reviewed decision should bind the USDC target context, selected mint, exact raw input, reviewed minimum output, expiry, wallet, and policy results before signing.
+**Adapt:** separate what the user intends from how a route executes it. DrawRail's reviewed decision should bind the USDC target context, selected mint, exact raw input, reviewed minimum output, expiry, wallet, and policy results before signing.
 
 **Reject:** batch auctions, off-chain solver competition, delegated fill semantics, partial fills, EVM approvals, and a custom intent protocol.
 
@@ -509,7 +509,7 @@ Rabby's open-source wallet positions transaction simulation and security analysi
 
 **Adapt:** lead with consequences rather than instructions: xStock displayed reduction, expected/minimum USDC received, retained exposure, rejected alternatives, destination wallet, and policy checks. Keep raw amount, message hash, router, fee fields, mint addresses, and program details under Inspect.
 
-**Reject:** a generic transaction firewall, universal risk engine, or EVM-style simulation service dependency. Solana simulation can supplement the Stocklana decision but cannot replace Jupiter terms or post-settlement RPC deltas.
+**Reject:** a generic transaction firewall, universal risk engine, or EVM-style simulation service dependency. Solana simulation can supplement the DrawRail decision but cannot replace Jupiter terms or post-settlement RPC deltas.
 
 Sources: [Rabby open-source wallet](https://github.com/RabbyHub/Rabby), [Tenderly Transaction Preview](https://docs.tenderly.co/simulations/transaction-preview).
 
@@ -555,7 +555,7 @@ Sources: [Cypherpunk winners](https://blog.colosseum.com/announcing-the-winners-
 
 Official Solana/Colosseum winner posts consistently compress each winner into a plain problem/product sentence and then link to working proof. Historical judging criteria explicitly include functionality, potential impact, novelty, design/UX, and composability. Recent winner pages foreground the live pitch/demo rather than lengthy architecture prose.
 
-For Stocklana, this means the judge-facing story should prove, in order:
+For DrawRail, this means the judge-facing story should prove, in order:
 
 1. a recognizable need: “I need 80 USDC”;
 2. a visible constraint: “keep at least 600 dollars of NVDA exposure”;
@@ -566,7 +566,7 @@ For Stocklana, this means the judge-facing story should prove, in order:
 
 Sources: [Cypherpunk winners](https://blog.colosseum.com/announcing-the-winners-of-the-solana-cypherpunk-hackathon/), [Radar winners](https://solana.com/news/solana-radar-winners), [Solana Season judging criteria](https://solana.com/news/announcing-winners-of-the-solana-season-hackathon).
 
-## Patterns selected for Stocklana
+## Patterns selected for DrawRail
 
 ### TAKE
 
@@ -575,7 +575,7 @@ Sources: [Cypherpunk winners](https://blog.colosseum.com/announcing-the-winners-
 3. **Reason-coded selection and rejection** — Wallie and Henar turn refusal into a useful output.
 4. **Simulation/expected-change gate** — Samui and Tenderly preview consequences and block confirmation on invalid simulation.
 5. **Explicit network/provenance states** — xSpend, Rambu, and Offhrs clearly label sandbox/devnet/mainnet and mock/live boundaries.
-6. **Sign-only browser boundary with server relay** — Offhrs's shape aligns with Stocklana's JupiterZ requirement, with Stocklana additionally binding canonical message bytes and `requestId`.
+6. **Sign-only browser boundary with server relay** — Offhrs's shape aligns with DrawRail's JupiterZ requirement, with DrawRail additionally binding canonical message bytes and `requestId`.
 7. **Pending/confirmed/unknown receipt lifecycle** — xSpend and Samui avoid treating submission as settlement.
 
 ### ADAPT
@@ -583,7 +583,7 @@ Sources: [Cypherpunk winners](https://blog.colosseum.com/announcing-the-winners-
 1. Henar's rich comparison becomes one decision card plus rejected alternatives, not a terminal.
 2. Multiplier's raw-versus-economic explanation becomes an Inspect disclosure, not the main task.
 3. Wallie's ledger becomes a compact policy receipt without autonomous execution.
-4. CoW's signed constraints become Stocklana's reviewed decision binding, without solver infrastructure.
+4. CoW's signed constraints become DrawRail's reviewed decision binding, without solver infrastructure.
 5. Enso's intent-to-transaction separation becomes “liquidity request → one reviewed Jupiter transaction.”
 
 ### REJECT
@@ -598,7 +598,7 @@ Sources: [Cypherpunk winners](https://blog.colosseum.com/announcing-the-winners-
 
 ## Final product implication
 
-The most important competitive discovery is not a direct competitor. It is a presentation gap: several projects possess strong primitives but ask the user to think like a trader, protocol operator, merchant, or agent operator. Stocklana should feel like a withdrawal product with a policy explanation—not a swap terminal with extra warnings.
+The most important competitive discovery is not a direct competitor. It is a presentation gap: several projects possess strong primitives but ask the user to think like a trader, protocol operator, merchant, or agent operator. DrawRail should feel like a withdrawal product with a policy explanation—not a swap terminal with extra warnings.
 
 The locked differentiation remains:
 

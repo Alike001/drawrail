@@ -95,7 +95,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
   return (
     <main className="app-page">
       <header className="app-header">
-        <Link href="/" className="wordmark">Stocklana</Link>
+        <Link href="/" className="wordmark">DrawRail</Link>
         <div className="app-header-meta">
           <EnvironmentBadge mode={appMode} />
           {portfolio && <span className="wallet-chip" title={portfolio.wallet}>{shorten(portfolio.wallet)}</span>}
@@ -116,7 +116,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
               <span className="screen-index">01</span>
               <p className="eyebrow">Read-only access</p>
               <h1 id="connect-title">Load a Solana portfolio without signing anything.</h1>
-              <p>Stocklana reads USDC and the three supported xStocks from mainnet. It cannot move funds, request a signature, or submit a transaction in this milestone.</p>
+              <p>DrawRail reads USDC and the three supported xStocks from mainnet. It cannot move funds, request a signature, or submit a transaction in this milestone.</p>
             </div>
             <form onSubmit={loadPortfolio} className="wallet-form">
               <label htmlFor="wallet">Wallet public key</label>
@@ -243,7 +243,7 @@ function RequestScreen(props: {
           </div>
         </div>
         <div className="pyth-disabled"><div><span className="status-icon neutral">○</span><div><b>Pyth reference protection</b><p>Not enabled yet. No reference-price, market-session, confidence, or publisher check will be claimed.</p></div></div><span className="state-pill neutral">Not enabled</span></div>
-        <div className="form-footer"><p>Stocklana will re-read the portfolio and use live Jupiter ExactIn quotes. No signature or transaction will be requested.</p><button className="button" disabled={props.busy}>{props.busy ? "Evaluating balances → multipliers → quotes…" : "Evaluate portfolio"}</button></div>
+        <div className="form-footer"><p>DrawRail will re-read the portfolio and use live Jupiter ExactIn quotes. No signature or transaction will be requested.</p><button className="button" disabled={props.busy}>{props.busy ? "Evaluating balances → multipliers → quotes…" : "Evaluate portfolio"}</button></div>
       </form>
     </section>
   );

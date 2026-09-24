@@ -6,11 +6,11 @@ Status: product direction selected; implementation not started
 
 ## Decision
 
-Stocklana will answer one question:
+DrawRail will answer one question:
 
 > I need liquidity from my stock portfolio. Which position can I safely reduce without breaking the investment rules I already chose?
 
-The MVP is a self-custodial, user-signed **xStock → USDC portfolio drawdown**. The user states a USDC liquidity target. Stocklana counts existing USDC first, evaluates the user's supported xStock positions against deterministic preservation and execution rules, proposes one compliant reduction, obtains a current Jupiter quote, and lets the user review and sign the exact transaction.
+The MVP is a self-custodial, user-signed **xStock → USDC portfolio drawdown**. The user states a USDC liquidity target. DrawRail counts existing USDC first, evaluates the user's supported xStock positions against deterministic preservation and execution rules, proposes one compliant reduction, obtains a current Jupiter quote, and lets the user review and sign the exact transaction.
 
 Candidate A is the product. Candidate B is not a standalone firewall; its useful stock-specific checks are the internal policy engine for Candidate A.
 
@@ -68,7 +68,7 @@ Solana is necessary to this product rather than merely a deployment choice:
 
 ## Differentiation
 
-Stocklana is not another token swap screen. It adds the missing portfolio and stock-specific semantics:
+DrawRail is not another token swap screen. It adds the missing portfolio and stock-specific semantics:
 
 - starts from a USDC need rather than a token input amount;
 - considers existing USDC before selling an asset;
@@ -90,7 +90,7 @@ This remains meaningfully different from:
 
 ## Competitive boundaries
 
-Stocklana will not claim to:
+DrawRail will not claim to:
 
 - protect transactions submitted through other applications;
 - enforce a universal wallet policy;
@@ -101,13 +101,13 @@ Stocklana will not claim to:
 - provide PreStocks redemption; or
 - guarantee a merchant an exact invoice amount.
 
-The MVP controls only the transaction path it constructs. A user remains free to bypass Stocklana elsewhere. That is an explicit trust boundary, not a missing on-chain guarantee.
+The MVP controls only the transaction path it constructs. A user remains free to bypass DrawRail elsewhere. That is an explicit trust boundary, not a missing on-chain guarantee.
 
 ## Sponsor fit
 
 ### Jupiter
 
-Jupiter Swap V2 supplies the real mainnet action: current route competition, an assembled ExactIn transaction, managed execution, and execution-result fields. Stocklana contributes a portfolio-policy layer that culminates in a real Jupiter trade.
+Jupiter Swap V2 supplies the real mainnet action: current route competition, an assembled ExactIn transaction, managed execution, and execution-result fields. DrawRail contributes a portfolio-policy layer that culminates in a real Jupiter trade.
 
 ### Pyth
 
@@ -144,7 +144,7 @@ The MVP will not include:
 
 ## 30-second story
 
-“I need 80 USDC, and I already have 20. Stocklana checks the three tokenized-stock positions in my wallet against the minimum exposure rules I chose. It rejects NVDAx because selling enough would take me below my 600-dollar floor. It checks AAPLx's on-chain multiplier and activation state, optionally validates fresh Pyth representation and reference data, then converts the proposed displayed reduction into the exact raw Token-2022 amount. I see the expected and minimum USDC, the post-trade portfolio, and every passed or blocked rule. I sign once, Jupiter swaps my AAPLx to USDC, and Stocklana shows the confirmed mainnet evidence.”
+“I need 80 USDC, and I already have 20. DrawRail checks the three tokenized-stock positions in my wallet against the minimum exposure rules I chose. It rejects NVDAx because selling enough would take me below my 600-dollar floor. It checks AAPLx's on-chain multiplier and activation state, optionally validates fresh Pyth representation and reference data, then converts the proposed displayed reduction into the exact raw Token-2022 amount. I see the expected and minimum USDC, the post-trade portfolio, and every passed or blocked rule. I sign once, Jupiter swaps my AAPLx to USDC, and DrawRail shows the confirmed mainnet evidence.”
 
 The example explains the experience; asset selection and amounts are calculated from live state and are not hard-coded.
 

@@ -18,7 +18,7 @@ async function main() {
   const directory = resolve("validation-artifacts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const safeTimestamp = report.generatedAt.replaceAll(":", "-");
-  const outputPath = resolve(directory, `stocklana-mainnet-report-${safeTimestamp}.json`);
+  const outputPath = resolve(directory, `drawrail-mainnet-report-${safeTimestamp}.json`);
   await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   process.stderr.write(`Saved local read-only report to ${outputPath}\n`);
