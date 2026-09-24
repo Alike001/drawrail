@@ -30,8 +30,8 @@ why each position is selected, rejected, unavailable, or ranked lower.
 USDC need → portfolio policy → xStock evaluation → Jupiter quote → review → wallet signature → settlement evidence
 ```
 
-The current application stops at the read-only review. Wallet signing and settlement are shown in the
-product flow but are not implemented or simulated yet.
+The current application stops at an exact, unsigned wallet-bound transaction review. Wallet signing,
+Jupiter execution, and settlement are not implemented or simulated yet.
 
 ### Why Solana
 
@@ -53,13 +53,17 @@ Completed:
 - live quote-only Jupiter Swap V2 evaluation;
 - deterministic retained-floor policy engine and candidate ranking;
 - public landing page, read-only portfolio, request, decision, and review surfaces;
-- live mainnet read-only actionable and blocked decision evidence; and
-- authenticated TSLAx reference protection using a fresh Pyth Tesla equity feed and multiplier-correct Jupiter executable-price evidence.
+- live mainnet read-only actionable and blocked decision evidence;
+- authenticated TSLAx reference protection using a fresh Pyth Tesla equity feed and multiplier-correct Jupiter executable-price evidence;
+- Wallet Standard connection without a connection signature;
+- a fresh Jupiter wallet-bound final order, v0 decoding, lookup-table resolution, and unsigned simulation;
+- exact raw-input and minimum-USDC token-delta validation; and
+- canonical transaction-message hashing with a short-lived HMAC decision receipt.
 
 Not yet implemented:
 
-- injected wallet connection and wallet signing;
-- final Jupiter transaction construction or `/execute`;
+- wallet transaction signing;
+- Jupiter `/execute`;
 - funded transaction submission and RPC settlement reconciliation; and
 - Pyth reference protection for AAPLx and NVDAx, which remain unavailable under the current trial entitlement.
 
@@ -103,9 +107,10 @@ npm run validate:mainnet -- <wallet-public-key>
 npm run validate:pyth
 ```
 
-`SOLANA_RPC_URL` and `JUPITER_API_KEY` are server-side only. The public RPC and currently reachable
-keyless quote path are suitable for limited read-only checks, but reliable deployment requires
-production credentials. Never add a wallet keypair, seed phrase, private key, or real secret to this repository.
+`SOLANA_RPC_URL`, `JUPITER_API_KEY`, and `DECISION_RECEIPT_SECRET` are server-side only. The public RPC
+and keyless Jupiter path are suitable for limited read-only checks, but the quote-heavy decision-to-review
+flow can be rate-limited and reliable deployment requires production credentials. Never add a wallet
+keypair, seed phrase, private key, or real secret to this repository.
 
 `PYTH_PRO_API_KEY` is also server-only. `validate:pyth` prints only sanitized feed metadata and observations; pass a public wallet address to exercise the complete read-only TSLAx/Pyth/Jupiter policy path. TSLAx protection compares the authenticated Tesla equity reference with the expected Jupiter output per multiplier-correct displayed TSLAx unit. AAPLx and NVDAx are explicitly unprotected under the current entitlement, while the core non-Pyth drawdown remains usable.
 

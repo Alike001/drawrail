@@ -12,12 +12,17 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "capture:milestone-4": "tsx scripts/capture-milestone-4.ts",
     "validate:mainnet": "tsx scripts/validate-mainnet.ts",
     "validate:pyth": "NODE_OPTIONS='--conditions=react-server' tsx scripts/validate-pyth.ts"
   },
   "dependencies": {
     "@solana-program/token-2022": "0.19.0",
     "@solana/kit": "8.3.0",
+    "@solana/wallet-standard-features": "^1.5.0",
+    "@wallet-standard/app": "^1.1.1",
+    "@wallet-standard/base": "^1.1.1",
+    "@wallet-standard/features": "^1.1.1",
     "decimal.js": "10.6.0",
     "next": "16.3.6",
     "react": "19.3.0",
@@ -31,6 +36,7 @@
     "@types/react-dom": "19.2.2",
     "eslint": "9.39.1",
     "eslint-config-next": "16.3.6",
+    "playwright-core": "^1.63.0",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
     "vitest": "^4.1.11"

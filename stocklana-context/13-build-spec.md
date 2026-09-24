@@ -2,7 +2,7 @@
 
 Date: 23 September 2026
 
-Status: implementation in progress; Milestones 1–3 complete, Milestone 4 not started
+Status: implementation in progress; Milestones 1–4 complete, Milestone 5 not started
 
 Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
@@ -337,7 +337,8 @@ No database is required. The server issues a short-lived decision receipt contai
 Conceptual same-origin endpoints:
 
 - `GET /api/portfolio?wallet=...` → current normalized snapshot and feature availability;
-- `POST /api/drawdown/evaluate` → selected/rejected candidates and, when actionable, the unsigned Jupiter transaction plus signed receipt;
+- `POST /api/drawdown/evaluate` → selected/rejected candidates from live portfolio state and quote-only orders;
+- `POST /api/drawdown/review` → fresh wallet-bound final order, decoded/validated message, simulation evidence, exact review model, and signed short-lived receipt;
 - `POST /api/drawdown/execute` → signed transaction plus decision receipt;
 - `GET /api/transactions/:signature` → confirmation and reconciled evidence.
 
@@ -353,7 +354,7 @@ Before relay, the server verifies the receipt, expiry, wallet, message hash, raw
 4. Server counts existing USDC and evaluates every funded supported xStock.
 5. Server obtains quote-only orders, computes the selected raw input, and checks the remaining-position floor.
 6. Server obtains a final `/order` transaction with the user's wallet as `taker`.
-7. Server validates/decodes the possibly-v0 transaction, binds its canonical message hash to a signed decision receipt, and returns the review model plus transaction.
+7. Server validates/decodes the possibly-v0 transaction, resolves lookup tables, confirms the wallet/taker and allowlisted token accounts, verifies outer programs are executable, and simulates the unsigned message with signature verification disabled. The simulated xStock debit must equal the exact reviewed raw input and the simulated USDC credit must meet the reviewed minimum. The server then binds the canonical message hash to a signed decision receipt and returns the review model plus transaction.
 8. User reviews the exact proposal and explicitly clicks Sign and swap.
 9. Browser calls wallet `signTransaction`; the wallet displays the transaction and adds the user's signature without broadcasting it. The application never receives a private key.
 10. Browser returns the signed transaction and decision receipt to the server.
@@ -651,6 +652,7 @@ No live transaction should be attempted until gates 1–7 pass. Pyth-dependent c
 | `JUPITER_PRICE_MAX_SLOT_LAG` | Yes | Overview-price freshness bound |
 | `MULTIPLIER_SAFETY_WINDOW_SECONDS` | Yes | Fixed/default `900`; do not expose as a casual user override |
 | `DECISION_RECEIPT_SECRET` | Yes | High-entropy server-only HMAC secret |
+| `DECISION_RECEIPT_TTL_SECONDS` | Yes | Conservative local review lifetime when Jupiter omits `expireAt`; default `30` |
 | `NEXT_PUBLIC_SOLANA_CLUSTER` | Yes | Deployment-bound `devnet` or `mainnet-beta`; never Testnet for ordinary development and never changed during a reviewed flow |
 | `NEXT_PUBLIC_APP_MODE` | Yes | `synthetic-devnet`, `mainnet-read-only`, or `mainnet-funded`; drives the persistent environment label and action gate |
 | `NEXT_PUBLIC_EXPLORER_BASE_URL` | Optional | Transaction evidence link |
@@ -723,7 +725,7 @@ Implement the server-only authenticated Tesla reference client, exact freshness/
 
 ### Milestone 4 — unsigned transaction and review UI
 
-Add wallet connection, portfolio/request/review screens, final Jupiter `/order`, transaction decoding, message hashing, and short-lived signed decision receipts. Stop before relay until mutation/security tests pass.
+Completed 24 September 2026. Added Wallet Standard connection, wallet-change invalidation, final Jupiter `/order` with the connected wallet as taker, v0 decoding, address lookup-table resolution, structural and simulated token-delta validation, canonical message hashing, short-lived HMAC decision receipts, countdown expiry, and exact review UI. The browser does not call a signing method in this milestone, and DrawRail does not call `/execute` or broadcast.
 
 ### Milestone 5 — signing, execute, and verification
 
@@ -745,6 +747,7 @@ Exercise failure states, rate limits, stale data, wallet changes, quote expiry, 
 3. **Funded end-to-end evidence:** `/order` construction is verified read-only, but an owner-signed `/execute` and RPC-reconciled xStock → USDC mainnet settlement has not yet been performed.
 4. **Jupiter fee and output semantics:** validate on a later low-value transaction that `otherAmountThreshold` is the reviewed conservative output floor, record the actual fee fields Jupiter returns, and reconcile all `/execute` amount-result fields with RPC wallet deltas.
 5. **Price V3 unit semantics for scaled xStocks:** validate whether `usdPrice` is per displayed economic unit. Until then, it cannot be the authoritative retained-floor measure.
+6. **Production Jupiter capacity:** the anonymous API path produced valid wallet-bound orders but rate-limited the quote-heavy evaluation-to-review flow with HTTP 429. Deployment needs the already-specified Jupiter Developer Platform credential and retry/observability hardening before signing is enabled.
 
 None of these requires a custom program or a different architecture. The core product can proceed through the read-only correctness milestone while credentials and the funded validation wallet are prepared.
 

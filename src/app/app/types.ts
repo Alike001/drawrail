@@ -130,3 +130,57 @@ export type DecisionDto = {
   };
   chainSlot: number;
 };
+
+export type ReviewState = "decision_ready" | "building_transaction" | "validating_transaction" | "review_ready" | "quote_expired" | "policy_changed" | "wallet_changed" | "transaction_invalid" | "refresh_required";
+
+export type TransactionReviewDto = {
+  state: "review_ready";
+  wallet: string;
+  decision: DecisionDto;
+  order: {
+    inputMint: string;
+    outputMint: string;
+    inAmount: string;
+    outAmount: string;
+    otherAmountThreshold: string;
+    slippageBps: string;
+    priceImpact: string | null;
+    router: string | null;
+    mode: string | null;
+    swapMode: string | null;
+    feeBps: string | null;
+    feeMint: string | null;
+    platformFee: Record<string, unknown> | null;
+    expireAt: string | null;
+    requestId: string;
+    transaction: string;
+  };
+  transaction: {
+    version: "legacy" | 0;
+    recentBlockhash: string;
+    messageHash: string;
+    transactionBytes: number;
+    signatureSlots: number;
+    walletSignaturePresent: boolean;
+    walletSignatureIsEmpty: boolean;
+    signerAddresses: string[];
+    additionalSignerAddresses: string[];
+    lookupTables: string[];
+    resolvedAddressCount: number;
+    outerProgramIds: string[];
+    inputTokenAccount: string;
+    outputTokenAccount: string;
+    simulatedInputDebit: string;
+    simulatedOutputCredit: string;
+    invariants: Array<{ code: string; status: "passed"; detail: string }>;
+  };
+  economicInvariants: Array<{ code: string; status: "passed"; detail: string }>;
+  finalPyth: CandidateDto["pyth"] | null;
+  receipt: string;
+  receiptPayload: {
+    registryVersion: string;
+    pyth: { state: "not_applied" | "unavailable" | "valid" | "blocked"; evidenceHash: string | null };
+  };
+  createdAt: string;
+  expiresAt: string;
+};

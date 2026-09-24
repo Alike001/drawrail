@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ASSET_REGISTRY } from "@/domain/assets";
 import { basisPoints, rawTokenAmount } from "@/domain/types";
-import { JupiterClient, parseJupiterQuote, quoteRetainedPosition } from "./jupiter";
+import { JupiterClient, parseJupiterFinalOrder, parseJupiterQuote, quoteRetainedPosition } from "./jupiter";
 
 const fixture = {
   inAmount: "1000000",
@@ -52,6 +52,31 @@ describe("Jupiter quote parsing", () => {
 });
 
 describe("quote-only and retained-position behavior", () => {
+  it("builds a taker-bound final order without receiver or referral overrides", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      ...fixture,
+      inputMint: ASSET_REGISTRY.AAPLx.mint,
+      outputMint: ASSET_REGISTRY.USDC.mint,
+      transaction: "AQID",
+    }), { status: 200 }));
+    const result = await new JupiterClient("https://api.test/swap/v2").finalOrder(
+      ASSET_REGISTRY.AAPLx.mint,
+      ASSET_REGISTRY.USDC.mint,
+      rawTokenAmount(1_000_000n),
+      basisPoints(50n),
+      "11111111111111111111111111111111",
+    );
+    const url = new URL(String(vi.mocked(fetch).mock.calls[0][0]));
+    expect(url.searchParams.get("taker")).toBe("11111111111111111111111111111111");
+    expect(url.searchParams.has("receiver")).toBe(false);
+    expect(url.searchParams.has("referralAccount")).toBe(false);
+    expect(result.transaction).toBe("AQID");
+  });
+
+  it("requires final order transaction-binding fields", () => {
+    expect(() => parseJupiterFinalOrder(fixture)).toThrow("transaction-binding fields");
+  });
+
   it("calculates and quotes the exact retained raw balance", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
       ...fixture, inAmount: "7500000",

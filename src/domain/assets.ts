@@ -1,5 +1,6 @@
 export const TOKEN_PROGRAM_ADDRESS = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const TOKEN_2022_PROGRAM_ADDRESS = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+export const ASSET_REGISTRY_VERSION = "drawrail-mainnet-v1-2026-09-24";
 
 export type SupportedSymbol = "AAPLx" | "NVDAx" | "TSLAx" | "USDC";
 export type XStockSymbol = Exclude<SupportedSymbol, "USDC">;

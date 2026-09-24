@@ -94,6 +94,7 @@ h3 { letter-spacing: -.02em; }
 .environment-badge.synthetic-devnet i { background: #6f54a5; }
 .environment-badge.mainnet-funded i { background: var(--green); }
 .wallet-chip { color: var(--muted); font-family: ui-monospace, monospace; }
+.wallet-chip.read-only { border-style: dashed; }
 .app-shell { margin: 0 auto; padding: 36px 0 100px; width: min(1080px, calc(100% - 40px)); }
 .app-context { align-items: center; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; margin-bottom: 44px; padding-bottom: 18px; }
 .app-context p { margin: 0; }
@@ -107,6 +108,20 @@ label { color: var(--ink); font-size: .8rem; font-weight: 750; }
 input { background: white; border: 1px solid #bfc5c1; border-radius: 10px; color: var(--ink); min-height: 50px; padding: 0 14px; width: 100%; }
 .wallet-form small { color: var(--muted); font-size: .7rem; line-height: 1.5; }
 .wallet-form .button { margin-top: 10px; width: 100%; }
+.wallet-options { display: grid; gap: 10px; margin-top: 28px; }
+.wallet-option { align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; color: var(--ink); cursor: pointer; display: grid; gap: 12px; grid-template-columns: auto 1fr auto; min-height: 72px; padding: 12px 16px; text-align: left; }
+.wallet-option:hover:not(:disabled) { border-color: #87a998; }
+.wallet-option:disabled { cursor: wait; opacity: .62; }
+.wallet-option-mark { align-items: center; background: var(--green-soft); border-radius: 50%; color: var(--green); display: flex; font-family: Georgia, serif; font-size: 1.2rem; height: 38px; justify-content: center; width: 38px; }
+.wallet-option > span:nth-child(2) { display: flex; flex-direction: column; gap: 2px; }
+.wallet-option small { color: var(--muted); }
+.wallet-option i { color: var(--green); font-size: .75rem; font-style: normal; font-weight: 800; }
+.wallet-empty { background: #ebe9e2; border-radius: 12px; display: flex; flex-direction: column; gap: 5px; padding: 16px; }
+.wallet-empty span, .field-error { color: var(--muted); font-size: .78rem; }
+.field-error { color: var(--red); margin: 12px 0 0; }
+.developer-wallet-control { border-top: 1px solid var(--line); padding-top: 18px; }
+.developer-wallet-control summary { color: var(--muted); cursor: pointer; font-size: .75rem; font-weight: 750; }
+.developer-wallet-control .wallet-form { margin-top: 18px; }
 .alert { align-items: flex-start; background: var(--amber-soft); border: 1px solid #dfc692; border-radius: 12px; display: flex; gap: 12px; margin-bottom: 22px; padding: 15px 18px; }
 .alert b { flex: 0 0 auto; }
 .alert span { color: #6d552e; font-size: .86rem; line-height: 1.45; }
@@ -116,6 +131,7 @@ input { background: white; border: 1px solid #bfc5c1; border-radius: 10px; color
 .screen-heading { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 14px; }
 .screen-heading > div { max-width: 780px; }
 .screen-heading h1 { margin-bottom: 0; }
+.portfolio-wallet-actions { align-items: flex-end; display: flex; flex-direction: column; gap: 5px; }
 .liquidity-card { align-items: end; background: var(--ink); border-radius: var(--radius); color: white; display: flex; justify-content: space-between; padding: 28px 32px; }
 .liquidity-card div { display: flex; flex-direction: column; gap: 7px; }
 .liquidity-card span { color: #b4c7bd; font-size: .75rem; font-weight: 750; text-transform: uppercase; }
@@ -247,6 +263,12 @@ input { background: white; border: 1px solid #bfc5c1; border-radius: 10px; color
 .review-facts span { color: var(--muted); font-size: .7rem; text-transform: uppercase; }
 .review-facts b { overflow-wrap: anywhere; }
 .milestone-boundary { margin: 0; }
+.review-request-summary { border-color: #b9c9bf; }
+.rules-review { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+.rules-review .check { color: var(--ink); }
+.rules-review .check span { color: var(--green); }
+.transaction-inspect { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin: 0; padding: 18px 20px; }
+.review-progress { margin-top: 60px; }
 
 @media (max-width: 900px) {
   .hero { grid-template-columns: 1fr; padding-top: 40px; }
@@ -280,6 +302,7 @@ input { background: white; border: 1px solid #bfc5c1; border-radius: 10px; color
   .app-header-meta { align-items: flex-end; flex-direction: column; }
   .app-context { align-items: flex-start; flex-direction: column; gap: 8px; }
   .screen-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .portfolio-wallet-actions { align-items: flex-start; }
   .liquidity-card { align-items: flex-start; flex-direction: column; gap: 16px; }
   .inspect-grid { grid-template-columns: 1fr; }
   .primary-action, .form-footer .button { width: 100%; }

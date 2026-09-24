@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Wallet } from "@wallet-standard/base";
 import { formatRawAmount, parseUsdc } from "@/domain/money";
+import { canBuildWalletReview, type ReviewState } from "@/domain/review-state";
+import { useWalletStandard } from "@/wallet/wallet-standard";
 import { EnvironmentBadge } from "../components/environment-badge";
-import type { CandidateDto, DecisionDto, PortfolioDto } from "./types";
+import type { CandidateDto, DecisionDto, PortfolioDto, TransactionReviewDto } from "./types";
 
 type Stage = "wallet" | "portfolio" | "request" | "decision" | "review";
 type Floors = Record<"AAPLx" | "NVDAx" | "TSLAx", string>;
@@ -12,17 +15,22 @@ type Floors = Record<"AAPLx" | "NVDAx" | "TSLAx", string>;
 const EMPTY_FLOORS: Floors = { AAPLx: "0", NVDAx: "0", TSLAx: "0" };
 
 export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string; appMode: string }) {
-  const [wallet, setWallet] = useState(defaultWallet);
+  const walletStandard = useWalletStandard();
+  const [readOnlyWallet, setReadOnlyWallet] = useState(defaultWallet);
+  const [walletMode, setWalletMode] = useState<"connected" | "read-only" | null>(null);
   const [portfolio, setPortfolio] = useState<PortfolioDto | null>(null);
   const [decision, setDecision] = useState<DecisionDto | null>(null);
+  const [review, setReview] = useState<TransactionReviewDto | null>(null);
+  const [reviewState, setReviewState] = useState<ReviewState>("decision_ready");
   const [stage, setStage] = useState<Stage>("wallet");
   const [target, setTarget] = useState("80");
   const [floors, setFloors] = useState<Floors>(EMPTY_FLOORS);
   const [slippage, setSlippage] = useState("0.5");
   const [referenceProtection, setReferenceProtection] = useState(false);
   const [divergenceLimit, setDivergenceLimit] = useState("1");
-  const [busy, setBusy] = useState<"portfolio" | "decision" | null>(null);
+  const [busy, setBusy] = useState<"portfolio" | "decision" | "review" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const previousConnectedWallet = useRef<string | null>(null);
 
   const existing = portfolio ? formatRawAmount(BigInt(portfolio.usdc.rawBalance), 6, 2) : "0";
   const missing = useMemo(() => {
@@ -36,22 +44,43 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     }
   }, [portfolio, target]);
 
-  async function loadPortfolio(event: FormEvent) {
-    event.preventDefault();
+  const loadPortfolioAddress = useCallback(async (address: string, mode: "connected" | "read-only") => {
     setBusy("portfolio");
     setError(null);
     setDecision(null);
+    setReview(null);
     try {
-      const response = await fetch(`/api/portfolio?wallet=${encodeURIComponent(wallet.trim())}`, { cache: "no-store" });
+      const response = await fetch(`/api/portfolio?wallet=${encodeURIComponent(address.trim())}`, { cache: "no-store" });
       const body = await response.json() as PortfolioDto | { error: string };
       if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Portfolio read failed");
       setPortfolio(body);
+      setWalletMode(mode);
       setStage("portfolio");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The portfolio could not be loaded.");
+      setStage("wallet");
     } finally {
       setBusy(null);
     }
+  }, []);
+
+  useEffect(() => {
+    const next = walletStandard.connection?.address ?? null;
+    if (next === previousConnectedWallet.current) return;
+    const hadWallet = previousConnectedWallet.current !== null;
+    previousConnectedWallet.current = next;
+    setPortfolio(null);
+    setDecision(null);
+    setReview(null);
+    setReviewState(hadWallet ? "wallet_changed" : "decision_ready");
+    setWalletMode(next ? "connected" : null);
+    setStage("wallet");
+    if (next) void loadPortfolioAddress(next, "connected");
+  }, [walletStandard.connection?.address, loadPortfolioAddress]);
+
+  async function loadReadOnlyPortfolio(event: FormEvent) {
+    event.preventDefault();
+    await loadPortfolioAddress(readOnlyWallet, "read-only");
   }
 
   async function evaluate(event: FormEvent) {
@@ -60,6 +89,8 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     setBusy("decision");
     setError(null);
     setDecision(null);
+    setReview(null);
+    setReviewState("decision_ready");
     try {
       const response = await fetch("/api/drawdown/evaluate", {
         method: "POST",
@@ -78,6 +109,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
       const body = await response.json() as DecisionDto | { error: string };
       if (!response.ok || "error" in body) throw new Error("error" in body ? body.error : "Evaluation failed");
       setDecision(body);
+      setReviewState("decision_ready");
       setStage("decision");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The portfolio could not be evaluated.");
@@ -86,16 +118,69 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
     }
   }
 
-  function openReview() {
+  async function openReview() {
     if (!decision?.expiresAt || Date.parse(decision.expiresAt) <= Date.now()) {
       setError("This quote has expired. Refresh the decision before reviewing it.");
+      setReviewState("quote_expired");
+      return;
+    }
+    if (!walletStandard.connection || walletMode !== "connected" || walletStandard.connection.address !== decision.wallet) {
+      setError("Connect the same wallet used for this decision before building its exact transaction review.");
+      setReviewState("wallet_changed");
       return;
     }
     setError(null);
+    setReview(null);
+    setReviewState("building_transaction");
     setStage("review");
+    setBusy("review");
+    try {
+      const response = await fetch("/api/drawdown/review", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          wallet: decision.wallet,
+          targetUsdc: target,
+          retainedFloors: floors,
+          maxSlippageBps: percentToBasisPoints(slippage),
+          referenceProtection: {
+            required: referenceProtection,
+            maxDivergenceBps: percentToBasisPoints(divergenceLimit),
+          },
+          expectedDecision: {
+            createdAt: decision.createdAt,
+            selectedSymbol: decision.selected!.symbol,
+            selectedRawInput: decision.selected!.rawInput,
+          },
+        }),
+      });
+      setReviewState("validating_transaction");
+      const body = await response.json() as TransactionReviewDto | { state?: ReviewState; error: string };
+      if (!response.ok || "error" in body) {
+        const state = "state" in body && body.state ? body.state : "transaction_invalid";
+        setReviewState(state);
+        throw new Error("error" in body ? body.error : "Transaction review failed");
+      }
+      if (walletStandard.connection.address !== body.wallet) {
+        setReviewState("wallet_changed");
+        throw new Error("The connected wallet changed while the transaction was being reviewed.");
+      }
+      setReview(body);
+      setReviewState("review_ready");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The exact transaction review could not be built.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   const funded = portfolio?.positions.filter((position) => position.state === "verified" && BigInt(position.rawBalance ?? "0") > 0n) ?? [];
+  const changePolicy = <T,>(setter: (value: T) => void) => (value: T) => {
+    setter(value);
+    setDecision(null);
+    setReview(null);
+    setReviewState("policy_changed");
+  };
 
   return (
     <main className="app-page">
@@ -103,7 +188,8 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
         <Link href="/" className="wordmark">DrawRail</Link>
         <div className="app-header-meta">
           <EnvironmentBadge mode={appMode} />
-          {portfolio && <span className="wallet-chip" title={portfolio.wallet}>{shorten(portfolio.wallet)}</span>}
+          {walletStandard.connection && <span className="wallet-chip" title={walletStandard.connection.address}>{walletStandard.connection.name} · {shorten(walletStandard.connection.address)}</span>}
+          {!walletStandard.connection && portfolio && <span className="wallet-chip read-only" title={portfolio.wallet}>Read only · {shorten(portfolio.wallet)}</span>}
         </div>
       </header>
 
@@ -116,39 +202,35 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
         {error && <div className="alert alert-error" role="alert"><b>Action needed</b><span>{error}</span></div>}
 
         {stage === "wallet" && (
-          <section className="connect-panel panel" aria-labelledby="connect-title">
-            <div>
-              <span className="screen-index">01</span>
-              <p className="eyebrow">Read-only access</p>
-              <h1 id="connect-title">Load a Solana portfolio without signing anything.</h1>
-              <p>DrawRail reads USDC and the three supported xStocks from mainnet. It cannot move funds, request a signature, or submit a transaction in this milestone.</p>
-            </div>
-            <form onSubmit={loadPortfolio} className="wallet-form">
-              <label htmlFor="wallet">Wallet public key</label>
-              <input id="wallet" value={wallet} onChange={(event) => setWallet(event.target.value)} required autoComplete="off" placeholder="Enter a public address" />
-              <small>Developer/read-only control · Never enter a private key or seed phrase.</small>
-              <button className="button" disabled={busy === "portfolio"}>{busy === "portfolio" ? "Reading live portfolio…" : "Load read-only wallet"}</button>
-            </form>
-          </section>
+          <WalletEntryScreen
+            wallets={walletStandard.wallets}
+            connecting={walletStandard.connecting}
+            walletError={walletStandard.error}
+            onConnect={(wallet) => void walletStandard.connect(wallet)}
+            readOnlyWallet={readOnlyWallet}
+            setReadOnlyWallet={setReadOnlyWallet}
+            onReadOnlySubmit={loadReadOnlyPortfolio}
+            busy={busy === "portfolio"}
+          />
         )}
 
         {portfolio && stage === "portfolio" && (
-          <PortfolioScreen portfolio={portfolio} fundedCount={funded.length} onRequest={() => setStage("request")} onChangeWallet={() => { setPortfolio(null); setStage("wallet"); }} />
+          <PortfolioScreen portfolio={portfolio} fundedCount={funded.length} walletMode={walletMode} walletName={walletStandard.connection?.name} onDisconnect={() => void walletStandard.disconnect()} onRequest={() => setStage("request")} onChangeWallet={() => { setPortfolio(null); setDecision(null); setReview(null); setWalletMode(null); setStage("wallet"); }} />
         )}
 
         {portfolio && stage === "request" && (
           <RequestScreen
             portfolio={portfolio}
             target={target}
-            setTarget={setTarget}
+            setTarget={changePolicy(setTarget)}
             floors={floors}
-            setFloors={setFloors}
+            setFloors={changePolicy(setFloors)}
             slippage={slippage}
-            setSlippage={setSlippage}
+            setSlippage={changePolicy(setSlippage)}
             referenceProtection={referenceProtection}
-            setReferenceProtection={setReferenceProtection}
+            setReferenceProtection={changePolicy(setReferenceProtection)}
             divergenceLimit={divergenceLimit}
-            setDivergenceLimit={setDivergenceLimit}
+            setDivergenceLimit={changePolicy(setDivergenceLimit)}
             existing={existing}
             missing={missing}
             busy={busy === "decision"}
@@ -162,27 +244,69 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
             decision={decision}
             onBack={() => setStage("request")}
             onRefresh={(event) => void evaluate(event)}
-            onReview={openReview}
+            onReview={() => void openReview()}
+            canReview={canBuildWalletReview(walletMode, walletStandard.connection?.address ?? null, decision.wallet)}
             busy={busy === "decision"}
           />
         )}
 
         {portfolio && decision?.selected && stage === "review" && (
-          <ReviewScreen decision={decision} onBack={() => setStage("decision")} />
+          review
+            ? <ReviewScreen review={review} walletName={walletStandard.connection?.name ?? "Connected wallet"} reviewState={reviewState} onExpired={() => setReviewState("quote_expired")} onBack={() => setStage("decision")} onRefresh={() => { setReview(null); setStage("decision"); setReviewState("refresh_required"); }} />
+            : <ReviewProgress state={reviewState} busy={busy === "review"} onBack={() => setStage("decision")} />
         )}
       </div>
     </main>
   );
 }
 
-function PortfolioScreen({ portfolio, fundedCount, onRequest, onChangeWallet }: {
-  portfolio: PortfolioDto; fundedCount: number; onRequest: () => void; onChangeWallet: () => void;
+function WalletEntryScreen(props: {
+  wallets: readonly Wallet[];
+  connecting: string | null;
+  walletError: string | null;
+  onConnect: (wallet: Wallet) => void;
+  readOnlyWallet: string;
+  setReadOnlyWallet: (value: string) => void;
+  onReadOnlySubmit: (event: FormEvent) => void;
+  busy: boolean;
+}) {
+  return (
+    <section className="connect-panel panel wallet-connect-panel" aria-labelledby="connect-title">
+      <div>
+        <span className="screen-index">01</span>
+        <p className="eyebrow">Wallet-owned portfolio</p>
+        <h1 id="connect-title">Connect your Solana wallet.</h1>
+        <p>Connection only shares your public address. DrawRail does not request a message or transaction signature.</p>
+        <div className="wallet-options" aria-label="Compatible wallets">
+          {props.wallets.length === 0
+            ? <div className="wallet-empty"><b>No compatible injected wallet detected</b><span>Install or unlock a Wallet Standard wallet with Solana v0 transaction support.</span></div>
+            : props.wallets.map((wallet) => <button key={wallet.name} className="wallet-option" onClick={() => props.onConnect(wallet)} disabled={props.connecting !== null}>
+              <span className="wallet-option-mark">{wallet.name.slice(0, 1)}</span><span><b>{wallet.name}</b><small>Wallet Standard · Mainnet</small></span><i>{props.connecting === wallet.name ? "Connecting…" : "Connect"}</i>
+            </button>)}
+        </div>
+        {props.walletError && <p className="field-error">{props.walletError}</p>}
+      </div>
+      <details className="developer-wallet-control">
+        <summary>Developer read-only address</summary>
+        <form onSubmit={props.onReadOnlySubmit} className="wallet-form">
+          <label htmlFor="wallet">Wallet public key</label>
+          <input id="wallet" value={props.readOnlyWallet} onChange={(event) => props.setReadOnlyWallet(event.target.value)} required autoComplete="off" placeholder="Enter a public address" />
+          <small>Read-only mode cannot construct a wallet-bound review. Never enter a private key or seed phrase.</small>
+          <button className="button button-secondary" disabled={props.busy}>{props.busy ? "Reading live portfolio…" : "Load read-only wallet"}</button>
+        </form>
+      </details>
+    </section>
+  );
+}
+
+function PortfolioScreen({ portfolio, fundedCount, walletMode, walletName, onDisconnect, onRequest, onChangeWallet }: {
+  portfolio: PortfolioDto; fundedCount: number; walletMode: "connected" | "read-only" | null; walletName?: string; onDisconnect: () => void; onRequest: () => void; onChangeWallet: () => void;
 }) {
   return (
     <section className="screen-stack" aria-labelledby="portfolio-title">
       <div className="screen-heading">
         <div><p className="eyebrow">Live portfolio</p><h1 id="portfolio-title">Available liquidity and supported exposure.</h1></div>
-        <button className="text-button" onClick={onChangeWallet}>Change wallet</button>
+        <div className="portfolio-wallet-actions"><span className={`state-pill ${walletMode === "connected" ? "stable" : "neutral"}`}>{walletMode === "connected" ? `${walletName ?? "Wallet"} connected` : "Read-only address"}</span><button className="text-button" onClick={walletMode === "connected" ? onDisconnect : onChangeWallet}>{walletMode === "connected" ? "Disconnect" : "Change address"}</button></div>
       </div>
       <div className="liquidity-card">
         <div><span>USDC already available</span><strong>${formatRawAmount(BigInt(portfolio.usdc.rawBalance), 6, 2)}</strong></div>
@@ -284,8 +408,8 @@ function ReferenceProtectionControl(props: {
   </div>;
 }
 
-function DecisionScreen({ decision, onBack, onRefresh, onReview, busy }: {
-  decision: DecisionDto; onBack: () => void; onRefresh: (event: FormEvent) => void; onReview: () => void; busy: boolean;
+function DecisionScreen({ decision, onBack, onRefresh, onReview, canReview, busy }: {
+  decision: DecisionDto; onBack: () => void; onRefresh: (event: FormEvent) => void; onReview: () => void; canReview: boolean; busy: boolean;
 }) {
   if (decision.outcome === "target-already-met") {
     return <section className="empty-decision panel"><span className="status-icon selected">✓</span><p className="eyebrow">Target already met</p><h1>You already have enough USDC.</h1><p>Your wallet holds ${usdc(decision.existingUsdc)}, which covers the ${usdc(decision.targetUsdc)} target. No xStock sale is needed.</p><button className="button" onClick={onBack}>Change request</button></section>;
@@ -304,8 +428,9 @@ function DecisionScreen({ decision, onBack, onRefresh, onReview, busy }: {
       <div className="decision-actions">
         <button className="text-button" onClick={onBack}>Change request</button>
         <form onSubmit={onRefresh}><button className="button button-secondary" disabled={busy}>{busy ? "Refreshing…" : "Refresh decision"}</button></form>
-        {decision.selected && <button className="button" onClick={onReview}>Review drawdown <span aria-hidden>→</span></button>}
+        {decision.selected && <button className="button" onClick={onReview} disabled={!canReview}>{canReview ? <>Build exact review <span aria-hidden>→</span></> : "Connect wallet to review"}</button>}
       </div>
+      {decision.selected && !canReview && <div className="alert"><b>Read-only decision</b><span>Connect the same wallet to obtain and validate a wallet-bound Jupiter transaction. A pasted address cannot sign or execute.</span></div>}
     </section>
   );
 }
@@ -388,27 +513,91 @@ function CandidateInspect({ candidate }: { candidate: CandidateDto }) {
   </div></details>;
 }
 
-function ReviewScreen({ decision, onBack }: { decision: DecisionDto; onBack: () => void }) {
-  const selected = decision.selected!;
+function ReviewProgress({ state, busy, onBack }: { state: ReviewState; busy: boolean; onBack: () => void }) {
+  const labels: Record<ReviewState, string> = {
+    decision_ready: "Decision ready",
+    building_transaction: "Building wallet-bound Jupiter order…",
+    validating_transaction: "Validating transaction message and lookup tables…",
+    review_ready: "Review ready",
+    quote_expired: "Quote expired",
+    policy_changed: "Policy or live economics changed",
+    wallet_changed: "Wallet changed",
+    transaction_invalid: "Transaction could not be validated",
+    refresh_required: "Fresh decision required",
+  };
+  return <section className="empty-decision panel review-progress"><span className={`status-icon ${busy ? "neutral" : "blocked"}`}>{busy ? "…" : "×"}</span><p className="eyebrow">Exact transaction review</p><h1>{labels[state]}</h1><p>{busy ? "DrawRail is obtaining a fresh final order, resolving its v0 message, and binding it to the reviewed policy." : "No transaction was accepted. Return to the decision and refresh live state."}</p><button className="button button-secondary" onClick={onBack}>Back to decision</button></section>;
+}
+
+function ReviewScreen({ review, walletName, reviewState, onExpired, onBack, onRefresh }: {
+  review: TransactionReviewDto;
+  walletName: string;
+  reviewState: ReviewState;
+  onExpired: () => void;
+  onBack: () => void;
+  onRefresh: () => void;
+}) {
+  const selected = review.decision.selected!;
+  const [remainingSeconds, setRemainingSeconds] = useState(() => Math.max(0, Math.ceil((Date.parse(review.expiresAt) - Date.now()) / 1000)));
+  useEffect(() => {
+    const update = () => setRemainingSeconds(Math.max(0, Math.ceil((Date.parse(review.expiresAt) - Date.now()) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1_000);
+    return () => window.clearInterval(timer);
+  }, [review.expiresAt]);
+  useEffect(() => { if (remainingSeconds === 0 && reviewState === "review_ready") onExpired(); }, [remainingSeconds, reviewState, onExpired]);
+  const expired = reviewState === "quote_expired" || remainingSeconds === 0;
+  const unchanged = review.decision.candidates.filter((candidate) => candidate.symbol !== selected.symbol);
   return (
     <section className="screen-stack review-screen" aria-labelledby="review-title">
-      <div className="screen-heading"><div><p className="eyebrow">Read-only review</p><h1 id="review-title">Review the proposed drawdown.</h1></div><span className="decision-state read-only">No signing in Milestone 2</span></div>
+      <div className="screen-heading"><div><p className="eyebrow">Verified transaction review</p><h1 id="review-title">The exact wallet-bound message is ready to inspect.</h1></div><span className={`decision-state ${expired ? "blocked" : "actionable"}`}>{expired ? "Quote expired" : `Valid for ${remainingSeconds}s`}</span></div>
+      <div className="request-summary review-request-summary">
+        <div><span>You requested</span><strong>${usdc(review.decision.targetUsdc)}</strong></div>
+        <i>−</i><div><span>Already available</span><strong>${usdc(review.decision.existingUsdc)}</strong></div>
+        <i>=</i><div className="summary-emphasis"><span>DrawRail will raise</span><strong>${usdc(review.decision.missingUsdc)}</strong></div>
+      </div>
       <div className="review-card">
-        <div className="review-leg"><span>You would reduce</span><strong>{compactDecimal(selected.displayedReduction ?? "0")} {selected.symbol}</strong><small>Exact raw input: {selected.rawInput}</small></div>
+        <div className="review-leg"><span>Selected position · Reduce</span><strong>{compactDecimal(selected.displayedReduction ?? "0")} {selected.symbol}</strong><small>Exact raw input: {review.order.inAmount}</small></div>
         <span className="review-arrow" aria-hidden>→</span>
-        <div className="review-leg receive"><span>You would receive</span><strong>${usdc(selected.expectedUsdc)} USDC</strong><small>Reviewed minimum: ${usdc(selected.minimumUsdc)} USDC</small></div>
+        <div className="review-leg receive"><span>Expected</span><strong>${usdc(review.order.outAmount)} USDC</strong><small>Minimum: ${usdc(review.order.otherAmountThreshold)} USDC</small></div>
       </div>
       <div className="review-facts">
-        <div><span>Destination wallet</span><b title={decision.wallet}>{shorten(decision.wallet)}</b></div>
+        <div><span>Connected wallet</span><b title={review.wallet}>{walletName} · {shorten(review.wallet)}</b></div>
         <div><span>Remaining {selected.symbol} exposure</span><b>${usdc(selected.retainedExecutableValue)}</b></div>
         <div><span>Retained floor</span><b>${usdc(selected.retainedFloor)}</b></div>
-        <div><span>Quote expires</span><b>{decision.expiresAt ? new Date(decision.expiresAt).toLocaleTimeString() : "Unavailable"}</b></div>
-        <div><span>Jupiter fee</span><b>{selected.quote?.feeBps ? `${selected.quote.feeBps} bps` : "Not returned"}</b></div>
-        <div><span>Reference protection</span><b>{selected.pyth?.status === "valid" ? "Applied to TSLAx" : selected.reasonCodes.includes("PYTH_NOT_ENTITLED") ? `Unavailable for ${selected.symbol}` : decision.pyth.status === "blocked" ? "Blocked" : "Not applied"}</b></div>
+        <div><span>Other positions</span><b>{unchanged.map((candidate) => candidate.symbol).join(", ")} unchanged</b></div>
+        <div><span>Jupiter fee</span><b>{review.order.feeBps ? `${review.order.feeBps} bps · ${review.order.feeMint ? shorten(review.order.feeMint) : "mint not returned"}` : "Not returned"}</b></div>
+        <div><span>Reference protection</span><b>{review.finalPyth?.status === "valid" ? "Tesla check passed" : review.receiptPayload.pyth.state === "unavailable" ? `Unavailable for ${selected.symbol}` : "Not applied"}</b></div>
       </div>
-      <div className="alert milestone-boundary"><b>Signing is intentionally unavailable</b><span>This milestone stops at a live, explainable, read-only review. No transaction was built, signed, broadcast, or sent to Jupiter /execute.</span></div>
-      <CandidateInspect candidate={selected} />
-      <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button><button className="button" disabled>Sign in wallet — later milestone</button></div>
+      <div className="rules-review"><p className="eyebrow">Your rules</p><div className="check-grid">
+        {[...selected.checks, ...review.economicInvariants, ...review.transaction.invariants].map((item, index) => <div key={`${item.code}-${index}`} className="check passed"><span>✓</span>{"label" in item ? item.label : item.detail}</div>)}
+      </div></div>
+      {review.finalPyth && <ReferenceEvidence candidate={{ ...selected, pyth: review.finalPyth }} />}
+      <div className={`alert milestone-boundary ${expired ? "alert-error" : ""}`}><b>{expired ? "Quote expired" : "Your wallet has not signed anything yet."}</b><span>{expired ? "This message can no longer progress. Refresh the decision and build a new order." : "Transaction review verified. Signing will be enabled only after the next transaction-security milestone."}</span></div>
+      <details className="inspect transaction-inspect"><summary>Inspect transaction</summary><div className="inspect-grid">
+        <InspectRow label="Connected wallet / taker" value={review.wallet} />
+        <InspectRow label="Input mint" value={review.order.inputMint} />
+        <InspectRow label="Output mint" value={review.order.outputMint} />
+        <InspectRow label="Raw / displayed input" value={`${review.order.inAmount} / ${selected.displayedReduction} ${selected.symbol}`} />
+        <InspectRow label="Expected / minimum output" value={`${review.order.outAmount} / ${review.order.otherAmountThreshold} raw USDC`} />
+        <InspectRow label="Jupiter fee" value={review.order.feeBps ? `${review.order.feeBps} bps in ${review.order.feeMint ?? "unreported mint"}` : "not returned"} />
+        <InspectRow label="Platform fee" value={review.order.platformFee ? JSON.stringify(review.order.platformFee) : "not returned"} />
+        <InspectRow label="Router / mode" value={`${review.order.router ?? "not returned"} / ${review.order.mode ?? "not returned"}`} />
+        <InspectRow label="Request ID" value={review.order.requestId} />
+        <InspectRow label="Recent blockhash" value={review.transaction.recentBlockhash} />
+        <InspectRow label="Transaction version" value={String(review.transaction.version)} />
+        <InspectRow label="Message SHA-256" value={review.transaction.messageHash} />
+        <InspectRow label="Decision receipt expiry" value={review.expiresAt} />
+        <InspectRow label="Lookup tables" value={review.transaction.lookupTables.length ? review.transaction.lookupTables.join(", ") : "none"} />
+        <InspectRow label="Resolved accounts" value={String(review.transaction.resolvedAddressCount)} />
+        <InspectRow label="Outer programs" value={review.transaction.outerProgramIds.join(", ")} />
+        <InspectRow label="Input token account" value={review.transaction.inputTokenAccount} />
+        <InspectRow label="USDC destination" value={review.transaction.outputTokenAccount} />
+        <InspectRow label="Simulated raw input debit" value={review.transaction.simulatedInputDebit} />
+        <InspectRow label="Simulated USDC credit" value={review.transaction.simulatedOutputCredit} />
+        <InspectRow label="Registry version" value={review.receiptPayload.registryVersion} />
+        <InspectRow label="Pyth evidence hash" value={review.receiptPayload.pyth.evidenceHash ?? "not applied"} />
+      </div></details>
+      <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button>{expired && <button className="button button-secondary" onClick={onRefresh}>Refresh decision</button>}<button className="button" disabled>Sign drawdown — security milestone</button></div>
     </section>
   );
 }

@@ -24,7 +24,9 @@ const orderSchema = z.object({
   platformFee: platformFeeSchema,
   expireAt: optionalStringOrNumber,
   requestId: z.string().nullish(),
-  transaction: z.null().optional(),
+  inputMint: z.string().optional(),
+  outputMint: z.string().optional(),
+  transaction: z.string().min(1).nullable().optional(),
 }).passthrough();
 
 export type JupiterQuote = Readonly<{
@@ -43,6 +45,13 @@ export type JupiterQuote = Readonly<{
   requestId: string | null;
 }>;
 
+export type JupiterFinalOrder = JupiterQuote & Readonly<{
+  inputMint: string;
+  outputMint: string;
+  transaction: string;
+  requestId: string;
+}>;
+
 export class JupiterClient {
   constructor(
     private readonly baseUrl: string,
@@ -56,6 +65,26 @@ export class JupiterClient {
     url.searchParams.set("outputMint", outputMint);
     url.searchParams.set("amount", amount.toString());
     url.searchParams.set("slippageBps", slippage.toString());
+    const parsed = await this.fetchOrder(url);
+    if (parsed.transaction !== null && parsed.transaction !== undefined) {
+      throw new Error("Quote-only Jupiter request unexpectedly returned a transaction");
+    }
+    return normalizeQuote(parsed);
+  }
+
+  async finalOrder(inputMint: string, outputMint: string, amount: RawTokenAmount, slippage: BasisPoints, taker: string): Promise<JupiterFinalOrder> {
+    if (amount <= 0n) throw new Error("Jupiter order amount must be positive");
+    const url = new URL("order", this.baseUrl.endsWith("/") ? this.baseUrl : `${this.baseUrl}/`);
+    url.searchParams.set("inputMint", inputMint);
+    url.searchParams.set("outputMint", outputMint);
+    url.searchParams.set("amount", amount.toString());
+    url.searchParams.set("slippageBps", slippage.toString());
+    url.searchParams.set("taker", taker);
+    const parsed = await this.fetchOrder(url);
+    return normalizeFinalOrder(parsed);
+  }
+
+  private async fetchOrder(url: URL) {
     const response = await fetch(url, {
       headers: this.apiKey ? { "x-api-key": this.apiKey } : undefined,
       cache: "no-store",
@@ -64,11 +93,7 @@ export class JupiterClient {
       const body = (await response.text()).slice(0, 500);
       throw new Error(`Jupiter /order failed with HTTP ${response.status}: ${body}`);
     }
-    const parsed = orderSchema.parse(await response.json());
-    if (parsed.transaction !== null && parsed.transaction !== undefined) {
-      throw new Error("Quote-only Jupiter request unexpectedly returned a transaction");
-    }
-    return normalizeQuote(parsed);
+    return orderSchema.parse(await response.json());
   }
 }
 
@@ -92,6 +117,23 @@ function normalizeQuote(parsed: z.infer<typeof orderSchema>): JupiterQuote {
 
 export function parseJupiterQuote(value: unknown): JupiterQuote {
   return normalizeQuote(orderSchema.parse(value));
+}
+
+export function parseJupiterFinalOrder(value: unknown): JupiterFinalOrder {
+  return normalizeFinalOrder(orderSchema.parse(value));
+}
+
+function normalizeFinalOrder(parsed: z.infer<typeof orderSchema>): JupiterFinalOrder {
+  if (!parsed.inputMint || !parsed.outputMint || !parsed.transaction || !parsed.requestId) {
+    throw new Error("Final Jupiter order is missing transaction-binding fields");
+  }
+  return {
+    ...normalizeQuote(parsed),
+    inputMint: parsed.inputMint,
+    outputMint: parsed.outputMint,
+    transaction: parsed.transaction,
+    requestId: parsed.requestId,
+  };
 }
 
 export async function quoteRetainedPosition(
