@@ -11,7 +11,7 @@ const envSchema = z.object({
   PYTH_CLOCK_SKEW_MS: z.string().regex(/^\d+$/).default("1000").transform(BigInt),
   DECISION_RECEIPT_SECRET: z.string().min(32).optional(),
   DECISION_RECEIPT_TTL_SECONDS: z.string().regex(/^\d+$/).default("60").transform(BigInt),
-  MAX_MAINNET_DRAWDOWN_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default("5"),
+  MAX_MAINNET_DRAWDOWN_USDC: z.string().regex(/^\d+(?:\.\d{1,6})?$/).default("0.5"),
   FUNDED_EXECUTION_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   NEXT_PUBLIC_APP_MODE: z.enum(["synthetic-devnet", "mainnet-read-only", "mainnet-funded"])
     .default("mainnet-read-only"),

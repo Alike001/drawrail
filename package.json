@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "capture:milestone-4": "tsx scripts/capture-milestone-4.ts",
+    "capture:final": "tsx scripts/capture-final.ts",
     "validate:mainnet": "tsx scripts/validate-mainnet.ts",
     "validate:pyth": "NODE_OPTIONS='--conditions=react-server' tsx scripts/validate-pyth.ts"
   },

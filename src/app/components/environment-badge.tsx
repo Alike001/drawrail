@@ -3,6 +3,6 @@ export function EnvironmentBadge({ mode = "mainnet-read-only" }: { mode?: string
     ? "Devnet — synthetic assets"
     : mode === "mainnet-funded"
       ? "Mainnet — real transaction"
-      : "Mainnet — Read only";
+      : "Mainnet — read only";
   return <span className={`environment-badge ${mode}`}><i aria-hidden />{label}</span>;
 }

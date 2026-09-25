@@ -273,7 +273,7 @@ export function DrawdownApp({ defaultWallet, appMode }: { defaultWallet: string;
       <div className="app-shell">
         <div className="app-context">
           <p className="eyebrow">Portfolio drawdown</p>
-          <p>Cash need first. Preservation rules second. Execution third.</p>
+          <p>{appMode === "mainnet-funded" ? "Real transaction mode · Review every amount before signing." : "Public safe mode · Live review available; financial execution disabled."}</p>
         </div>
 
         {error && <div className="alert alert-error" role="alert"><b>Action needed</b><span>{error}</span></div>}
@@ -696,7 +696,7 @@ function ReviewScreen({ review, walletName, reviewState, executionResult, signOn
         <InspectRow label="Registry version" value={review.receiptPayload.registryVersion} />
         <InspectRow label="Pyth evidence hash" value={review.receiptPayload.pyth.evidenceHash ?? "not applied"} />
       </div></details>
-      <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button>{!usable && (policySnapshotStillRecent ? <button className="button button-secondary" onClick={onRefreshTransaction}>Refresh transaction</button> : <button className="button button-secondary" onClick={onRefreshDecision}>Refresh decision</button>)}<button className="button button-secondary" onClick={onSignOnly} disabled={!usable || busy !== null || !review.execution.credentialsConfigured}>{busy === "signing" ? "Waiting for wallet…" : "Sign-only safety check"}</button><button className="button" onClick={onExecute} disabled={!usable || busy !== null || !review.execution.available}>{busy === "executing" ? "Waiting for wallet…" : `Sign and execute drawdown`}</button></div>
+      <div className="decision-actions"><button className="text-button" onClick={onBack}>Back to decision</button>{!usable && (policySnapshotStillRecent ? <button className="button button-secondary" onClick={onRefreshTransaction}>Refresh transaction</button> : <button className="button button-secondary" onClick={onRefreshDecision}>Refresh decision</button>)}<button className="button button-secondary" onClick={onSignOnly} disabled={!usable || busy !== null || !review.execution.credentialsConfigured}>{busy === "signing" ? "Waiting for wallet…" : "Sign-only safety check"}</button><button className="button" onClick={onExecute} disabled={!usable || busy !== null || !review.execution.available} title={!review.execution.available ? "Funded execution is disabled in this public deployment." : undefined}>{busy === "executing" ? "Waiting for wallet…" : `Sign and execute drawdown`}</button></div>
     </section>
   );
 }

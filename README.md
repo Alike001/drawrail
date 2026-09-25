@@ -1,102 +1,122 @@
 # DrawRail
 
-**Draw liquidity from your tokenized-stock portfolio within the rules you set.**
+**DrawRail turns tokenized-stock exposure into USDC without breaking the portfolio rules you already chose.**
 
-DrawRail turns tokenized-stock exposure into USDC without breaking your portfolio rules.
+[Live app](https://drawrail.vercel.app) · [Recorded Mainnet proof](https://drawrail.vercel.app/validation) · [Transaction on Solscan](https://solscan.io/tx/4fk7YBSP2pjGoxbW91CHZZaU9dStZ5y2M73j3UTbdYefk5ESjTmnYvwQx2gwnEAnctorjzX58KASAvx2PULdM2uN)
 
-Illustrative request:
-
-- Need 80 USDC.
-- Already have 20 USDC.
-- Need 60 more.
-- NVDAx is rejected because selling enough would violate the user's retained-exposure floor.
-- AAPLx is eligible under the same preservation and execution checks.
-- The user reviews the proposed drawdown and, in the later transaction milestone, signs it explicitly.
-
-![DrawRail landing page showing a policy-preserving liquidity decision](stocklana-context/screenshots/milestone-2-landing-desktop.png)
-
-### Why this exists
-
-A manual swap asks which token to sell. That is the wrong first question for someone who needs cash
-but wants to preserve chosen stock exposure. DrawRail starts with the USDC need, counts existing USDC
-first, and evaluates supported positions against deterministic retained-exposure and execution rules.
-
-It is not an investment advisor or trading bot. It applies rules the user already chose and explains
-why each position is selected, rejected, unavailable, or ranked lower.
-
-### How it works
+![DrawRail explains an illustrative policy-preserving drawdown](stocklana-context/screenshots/final-landing-desktop.png)
 
 ```text
-USDC need → portfolio policy → xStock evaluation → Jupiter quote → review → wallet signature → settlement evidence
+Need 80 USDC
+− Already have 20 USDC
+= Need 60 more
+→ NVDAx rejected because the sale would violate its retained floor
+→ AAPLx eligible
+→ User reviews and explicitly signs one exact drawdown
 ```
 
-The application now supports an explicitly reviewed, wallet-signed drawdown through Jupiter and verifies
-the resulting wallet balance changes through Solana RPC. Funded execution remains disabled by default.
+DrawRail completed one low-value Mainnet end-to-end AAPLx → USDC validation. The public deployment remains safely configured as **Mainnet read only** with funded execution disabled.
 
-### Why Solana
+## Why this exists
 
-- **xStocks** provide tokenized-stock exposure in a self-custody wallet.
-- **Token-2022 Scaled UI Amount** means displayed economic units can differ from raw transaction units;
-  DrawRail reads the live multiplier and hard-blocks its activation window.
-- **Jupiter Swap V2** supplies current ExactIn xStock → USDC liquidity and conservative minimum output.
-- **Wallet signing** keeps authorization with the user rather than an autonomous service.
-- **RPC settlement evidence** will prove the actual wallet debit and credit in the transaction milestone.
+A normal swap asks, “What token do you want to sell?” That makes the user manually translate a cash need into a portfolio decision.
 
-### Current status
+DrawRail starts with, “How much liquidity do you need, and what exposure do you refuse to break?” It counts existing USDC first, evaluates supported stock positions against deterministic rules, explains the selected and rejected positions, and binds the review to the exact transaction the wallet signs.
 
-Completed:
+DrawRail is not an investment advisor, trading bot, autonomous agent, or generic transaction firewall.
 
-- closed registry for AAPLx, NVDAx, TSLAx, and USDC;
-- aggregate balance reads across multiple token accounts;
-- live mainnet Token-2022 multiplier parsing and official conversion-parity tests;
-- inclusive ±15-minute multiplier activation hard block;
-- live quote-only Jupiter Swap V2 evaluation;
-- deterministic retained-floor policy engine and candidate ranking;
-- public landing page, read-only portfolio, request, decision, and review surfaces;
-- live mainnet read-only actionable and blocked decision evidence;
-- authenticated TSLAx reference protection using a fresh Pyth Tesla equity feed and multiplier-correct Jupiter executable-price evidence;
-- Wallet Standard connection without a connection signature;
-- a fresh Jupiter wallet-bound final order, v0 decoding, lookup-table resolution, and unsigned simulation;
-- exact raw-input and minimum-USDC token-delta validation; and
-- canonical transaction-message hashing with a short-lived HMAC decision receipt.
-- Wallet Standard `signTransaction` integration that never asks the wallet to broadcast;
-- server verification of the exact reviewed message and the user's Ed25519 signature;
-- router-aware order expiry, last-moment multiplier/Pyth checks, and a capped operator-gated `/execute` path;
-- single-instance replay refusal and RPC token-balance settlement reconciliation; and
-- confirmed, failed, investigation, and unknown settlement receipt states.
+## How it works
 
-Validated manually:
+```text
+USDC need
+→ existing USDC
+→ portfolio policy
+→ xStock evaluation
+→ wallet-bound Jupiter order
+→ exact transaction review
+→ explicit wallet signature
+→ RPC settlement evidence
+```
 
-- Phantom Wallet Standard sign-only flow on Mainnet;
-- exact message hash preserved across the wallet boundary;
-- user signature verified server-side;
-- the Stage A transaction was not broadcast and moved no funds; and
-- one explicitly approved low-value AAPLx → USDC Mainnet transaction, with exact-message signature verification and RPC-reconciled settlement.
+The V1 policy set is intentionally small: retained-exposure floors, maximum slippage, multiplier activation-window blocking, raw/displayed Token-2022 correctness, and optional TSLAx reference protection.
 
-Not currently available:
+## Why Solana
 
-- Pyth reference protection for AAPLx and NVDAx, which remain unavailable under the current trial entitlement.
+- **xStocks** place tokenized-stock exposure in the same self-custody wallet as USDC.
+- **Token-2022 Scaled UI Amount** means economic/displayed amounts can differ from raw transaction amounts. DrawRail reads the live multiplier, verifies official conversion parity, and blocks around pending activation.
+- **Jupiter Swap V2** supplies live executable xStock → USDC liquidity, wallet-bound v0 transactions, minimum output, routing, and fee evidence.
+- **Wallet Standard** lets the owner explicitly sign the exact reviewed message without giving DrawRail custody.
+- **Solana RPC** provides the final settlement authority through connected-wallet token balance deltas.
 
-DrawRail has completed one low-value Mainnet AAPLx → USDC validation transaction. This proves the end-to-end path; it does not imply broad production usage. The funded control remains disabled by default and requires production RPC/Jupiter/receipt configuration, `mainnet-funded` mode, and an explicit operator gate.
+## Pyth reference protection
 
-### Supported assets
+DrawRail implements authenticated, opt-in reference protection for **TSLAx only**:
+
+- Pyth Pro symbol: `Equity.US.TSLA/USD`;
+- resolved feed ID: `1435`;
+- fresh `feedUpdateTimestamp`, session, confidence, and publisher checks;
+- comparison against the multiplier-correct executable TSLAx price derived from the exact Jupiter candidate quote; and
+- a hard eligibility block when divergence exceeds the user’s threshold.
+
+In recorded live evidence, the same TSLAx candidate passed at a 100 bps limit and was blocked at 17 bps. AAPLx and NVDAx reference protection remain unavailable under the current trial entitlement; DrawRail does not represent them as protected.
+
+## Mainnet validation
+
+DrawRail completed a low-value Mainnet end-to-end validation—not production-scale usage.
+
+| Evidence | Value |
+|---|---:|
+| Asset / router | AAPLx / Metis |
+| Raw AAPLx debit | `149435` |
+| Reviewed expected / minimum | `502515 / 500002` raw USDC |
+| Actual RPC USDC credit | `502515` raw USDC |
+| Gross route output / output fee | `503018 / 503` raw USDC |
+| Jupiter status / code | `Success / 0` |
+| Solana slot | `450156253` |
+| Retry behavior | No retry occurred |
+
+Transaction: [`4fk7…M2uN`](https://solscan.io/tx/4fk7YBSP2pjGoxbW91CHZZaU9dStZ5y2M73j3UTbdYefk5ESjTmnYvwQx2gwnEAnctorjzX58KASAvx2PULdM2uN)
+
+RPC-observed wallet deltas remain authoritative. Jupiter’s `totalInputAmount` and `totalOutputAmount` reconcile wallet amounts; route-result fields are separately reconciled with fee-mint semantics.
+
+## Safety model
+
+- Self-custodial: DrawRail never accepts or stores a wallet private key.
+- User-authorized: every financial action requires an explicit wallet signature.
+- Exact-message binding: the server verifies the wallet signed the reviewed message bytes.
+- Closed registry: AAPLx, NVDAx, TSLAx, and USDC only.
+- Fail-closed state: malformed mint data, activation windows, stale protection data, expired orders, or unprovable transaction properties block progression.
+- No automatic financial retry: unknown submission state is investigated against the same signature/request.
+- RPC settlement authority: success requires reconciled connected-wallet balance changes.
+- Public safe mode: production defaults to `FUNDED_EXECUTION_ENABLED=false` and `mainnet-read-only`.
+
+## Supported assets
 
 - AAPLx
 - NVDAx
 - TSLAx
 - USDC
 
-### Safety model
+## Architecture
 
-- Self-custodial: DrawRail never accepts or stores a wallet private key.
-- User-authorized: every financial action requires an explicit wallet signature.
-- Closed assets: no hidden issuer or mint substitution.
-- Deterministic: no AI trading, autonomous portfolio management, or investment recommendation.
-- Multiplier-safe: activation-window violations hard-block rather than warn.
-- Amount-correct: raw integers and displayed Token-2022 amounts remain separate typed concepts.
-- Conservative: retained floors use the exact remaining-position quote's minimum output.
+DrawRail is one Next.js/TypeScript application:
 
-### Run locally
+- browser: Wallet Standard connection, policy input, decision/review/receipt UI;
+- server routes: live portfolio normalization, deterministic policy evaluation, Pyth/Jupiter calls, unsigned transaction validation, receipt binding, and controlled execution;
+- domain layer: branded bigint/fixed-precision amounts, Token-2022 conversion, policy reason codes, expiry, Pyth, and reconciliation rules;
+- external authorities: Solana RPC, Jupiter Swap V2, and authenticated Pyth Pro.
+
+No custom Solana program is required. Existing wallet, Token-2022, and Jupiter programs enforce ownership and movement; DrawRail binds its off-chain policy review to the exact signed transaction.
+
+## Current limitations
+
+- Public funded execution is deliberately disabled.
+- AAPLx and NVDAx Pyth reference protection is unavailable under the current trial entitlement.
+- The replay guard is process-local; durable atomic idempotency is required before multi-instance funded production use.
+- Supported assets and policies are intentionally narrow.
+- One Mainnet transaction proves the path, not operating scale or a security audit.
+
+## Run locally
 
 Requirements: Node.js 20.9 or newer.
 
@@ -114,16 +134,11 @@ npm run typecheck
 npm run lint
 npm run build
 npm run validate:mainnet -- <wallet-public-key>
-npm run validate:pyth
+npm run validate:pyth -- <wallet-public-key>
 ```
 
-`SOLANA_RPC_URL`, `JUPITER_API_KEY`, and `DECISION_RECEIPT_SECRET` are server-side only. The public RPC
-and keyless Jupiter path are suitable for limited read-only checks, but the quote-heavy decision-to-review
-flow can be rate-limited and reliable deployment requires production credentials. Never add a wallet
-keypair, seed phrase, private key, or real secret to this repository.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the exact Vercel environment list and safe production defaults. API keys, RPC credentials, and receipt secrets are server-only. Never put a keypair, seed phrase, private key, or real secret in this repository.
 
-`PYTH_PRO_API_KEY` is also server-only. `validate:pyth` prints only sanitized feed metadata and observations; pass a public wallet address to exercise the complete read-only TSLAx/Pyth/Jupiter policy path. TSLAx protection compares the authenticated Tesla equity reference with the expected Jupiter output per multiplier-correct displayed TSLAx unit. AAPLx and NVDAx are explicitly unprotected under the current entitlement, while the core non-Pyth drawdown remains usable.
-
-### Hackathon
+## Hackathon
 
 Built for the Solana Foundation Stocklana hackathon.

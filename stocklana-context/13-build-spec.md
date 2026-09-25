@@ -2,7 +2,7 @@
 
 Date: 23 September 2026
 
-Status: implementation in progress; Milestones 1–5 complete, Milestone 6 not started
+Status: implementation complete; Milestones 1–6 complete
 
 Selected direction: policy-preserving tokenized-stock portfolio drawdown
 
@@ -729,17 +729,17 @@ Completed 24 September 2026. Added Wallet Standard connection, wallet-change inv
 
 ### Milestone 5 — signing, execute, and verification
 
-In progress 24 September 2026. The implemented path uses Wallet Standard `signTransaction` only, verifies the Ed25519 wallet signature over the exact reviewed message, preserves non-wallet signature slots for JupiterZ partial-signature compatibility, rechecks router expiry/multiplier/Pyth state, and relays the unchanged bytes and bound `requestId` once to `/execute`. RPC owner/mint token deltas are authoritative settlement evidence. `MAX_MAINNET_DRAWDOWN_USDC`, `FUNDED_EXECUTION_ENABLED`, `mainnet-funded` mode, and complete production credentials independently gate submission.
+Completed 24 September 2026. The implemented path uses Wallet Standard `signTransaction` only, verifies the Ed25519 wallet signature over the exact reviewed message, preserves non-wallet signature slots for JupiterZ partial-signature compatibility, rechecks router expiry/multiplier/Pyth state, and relays the unchanged bytes and bound `requestId` once to `/execute`. RPC owner/mint token deltas are authoritative settlement evidence. `MAX_MAINNET_DRAWDOWN_USDC`, `FUNDED_EXECUTION_ENABLED`, `mainnet-funded` mode, and complete production credentials independently gate submission.
 
 The current replay guard is deliberately fail-closed and process-local for the single-instance hackathon deployment: once a receipt is reserved, ambiguous results cannot cause an automatic second submission. A multi-instance production deployment requires a durable atomic idempotency record before execution is enabled. Sign-only validation consumes its test receipt so that order cannot be used through the same server instance. Stage A passed with a real Phantom wallet: the exact message hash was preserved, the Ed25519 signature verified, and nothing was broadcast.
 
 Router validity is evaluated independently of DrawRail's conservative local review timeout: Metis/Dflow/OKX use `lastValidBlockHeight` when returned; JupiterZ uses `expireAt`; missing route metadata falls back to the local lifetime. DrawRail never extends an upstream validity limit. The browser's approximate deadline is the minimum of Jupiter RFQ expiry, a conservative post-simulation block-height estimate, and the 60-second local allowance. Exact current block height is still checked before signing and again before execution.
 
-The remaining exit gates are manual by design: explicit approval for the smallest-practical funded transaction, followed by RPC-reconciled evidence and genuine settlement screenshots.
+The Stage B exit gate passed with one explicitly approved, low-value AAPLx → USDC Mainnet transaction. The wallet debited `149435` raw AAPLx and received `502515` raw USDC against a reviewed minimum of `500002`; Jupiter returned `Success / 0` through Metis, RPC finalized the transaction at slot `450156253`, and no retry occurred. Funded execution was then disabled again.
 
 ### Milestone 6 — demo hardening
 
-Exercise failure states, rate limits, stale data, wallet changes, quote expiry, and unknown confirmation; fund the dedicated demo wallet; rehearse the live two-minute journey; and freeze the supported asset/config set.
+Completed 25 September 2026. The public Vercel deployment defaults to Mainnet read-only with funded execution disabled. The final package includes responsive landing and application surfaces, explicit loading/expiry/error states, recorded Mainnet and TSLAx Pyth evidence, clean desktop/mobile screenshots, deployment documentation, a two-minute demo script, submission copy, and final readiness evidence. The supported assets and financial behavior remain frozen.
 
 ## 24. Unresolved blockers and validation questions
 
@@ -748,12 +748,12 @@ Exercise failure states, rate limits, stale data, wallet changes, quote expiry, 
 1. **AAPLx/NVDAx entitlement:** authenticated validation on 24 September 2026 returned 403 for Apple and Nvidia equity references and all three crypto representation feeds. AAPLx and NVDAx protection therefore remain unavailable.
 2. **TSLAx scope:** authenticated feed 1435 plus the candidate's real Jupiter output supports a defensible TSLAx-only reference check; it does not justify a claim that every supported stock is Pyth-protected.
 
-### Blocking demo readiness, not architecture
+### Remaining production hardening, not submission blockers
 
-3. **Funded end-to-end evidence:** `/order` construction is verified read-only, but an owner-signed `/execute` and RPC-reconciled xStock → USDC mainnet settlement has not yet been performed.
-4. **Jupiter fee and output semantics:** validate on a later low-value transaction that `otherAmountThreshold` is the reviewed conservative output floor, record the actual fee fields Jupiter returns, and reconcile all `/execute` amount-result fields with RPC wallet deltas.
-5. **Price V3 unit semantics for scaled xStocks:** validate whether `usdPrice` is per displayed economic unit. Until then, it cannot be the authoritative retained-floor measure.
-6. **Production Jupiter capacity:** the anonymous API path produced valid wallet-bound orders but rate-limited the quote-heavy evaluation-to-review flow with HTTP 429. Deployment needs the already-specified Jupiter Developer Platform credential and retry/observability hardening before signing is enabled.
+3. **Durable idempotency:** the current replay guard is appropriate only for the controlled single-instance validation deployment. Multi-instance funded operation requires durable atomic submission state.
+4. **Professional security review:** the reviewed transaction and settlement boundaries are tested, but production-scale financial execution requires an independent security review and operational monitoring.
+5. **Price V3 unit semantics for scaled xStocks:** `usdPrice` is not used as the authoritative retained-floor measure because per-displayed-unit semantics have not been independently proven.
+6. **Broader Pyth coverage:** only TSLAx is protected under the current authenticated entitlement; AAPLx and NVDAx remain explicitly unavailable when reference protection is required.
 
 None of these requires a custom program or a different architecture. The core product can proceed through the read-only correctness milestone while credentials and the funded validation wallet are prepared.
 

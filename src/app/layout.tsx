@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./styles.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://drawrail.vercel.app"),
   title: "DrawRail — Policy-preserving liquidity on Solana",
   description: "Policy-preserving liquidity for tokenized-stock portfolios on Solana.",
   openGraph: {
@@ -9,6 +10,7 @@ export const metadata: Metadata = {
     description: "Request USDC from a tokenized-stock portfolio and let DrawRail find a policy-compliant position reduction using live Solana state and Jupiter liquidity.",
     siteName: "DrawRail",
     type: "website",
+    url: "https://drawrail.vercel.app",
   },
 };
 

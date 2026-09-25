@@ -13,7 +13,7 @@ export default function LandingPage() {
     <main className="landing">
       <nav className="public-nav" aria-label="Primary navigation">
         <Link href="/" className="wordmark">DrawRail</Link>
-        <Link href="/app" className="button button-small">Launch DrawRail <span aria-hidden>↗</span></Link>
+        <div className="public-nav-actions"><Link href="/validation" className="proof-link">Mainnet proof</Link><Link href="/app" className="button button-small">Launch DrawRail <span aria-hidden>↗</span></Link></div>
       </nav>
 
       <section className="hero shell">
@@ -24,6 +24,7 @@ export default function LandingPage() {
           <p className="precision-line">Turn tokenized-stock exposure into USDC without breaking the portfolio rules you already chose.</p>
           <div className="hero-actions">
             <Link href="/app" className="button">Launch DrawRail <span aria-hidden>↗</span></Link>
+            <Link href="/validation" className="text-button">View recorded Mainnet validation</Link>
             <span className="trust-line">Self-custodial · You review and sign · No autonomous trading</span>
           </div>
         </div>
@@ -80,6 +81,7 @@ export default function LandingPage() {
         <Link href="/app" className="button button-light">Launch DrawRail <span aria-hidden>↗</span></Link>
         <p>No transaction is sent until you review and sign.</p>
       </section>
+      <footer className="public-footer shell"><span>DrawRail · Built for the Solana Foundation Stocklana hackathon</span><Link href="/validation">Verified Mainnet evidence</Link></footer>
     </main>
   );
 }
